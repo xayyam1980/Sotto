@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.max
 
 /** Gemma 4 on the phone (LiteRT-LM): note summaries and Ask your notes. */
 object Gemma {
@@ -110,6 +111,38 @@ object Gemma {
         val conv = conversation(ctx, system, 0.3)
         var acc = ""
         return conv.sendMessageAsync("Notes:\n$context\nQuestion: $question")
+            .map { m -> acc += m.toString(); acc }
+            .onCompletion { runCatching { conv.close() } }
+    }
+
+    /**
+     * A digest of several notes (a whole day, or a selection), streaming the text.
+     * Notes are numbered [1], [2]…
+     */
+    fun summarizeNotes(ctx: Context, notes: List<String>): Flow<String> {
+        val outLang = if (AiSettings.summaryLanguage(ctx) == "same") "the language most of the notes are in" else "English"
+        val system = """
+            You write a short digest of several recorded conversations from one person's day.
+            Transcripts are automatic and may contain mistakes; infer the meaning, never invent facts.
+            Use these plain-text sections, in this order, and leave out any that would be empty:
+            Overview: 2-4 sentences about what the day was about.
+            Decisions: one per line, each starting with "- ".
+            To-dos: one per line, each starting with "- ", with who and by when if that was said.
+            People and places: one line.
+            Point to notes like [1] or [2] where it helps. No other formatting. Write in $outLang.
+        """.trimIndent()
+        val budget = 24_000
+        val per = max(600, budget / max(1, notes.size))
+        val context = buildString {
+            for ((i, n) in notes.withIndex()) {
+                val block = "[${i + 1}] ${n.take(per)}\n\n"
+                if (length + block.length > budget) break
+                append(block)
+            }
+        }
+        val conv = conversation(ctx, system, 0.2)
+        var acc = ""
+        return conv.sendMessageAsync("Notes:\n$context")
             .map { m -> acc += m.toString(); acc }
             .onCompletion { runCatching { conv.close() } }
     }

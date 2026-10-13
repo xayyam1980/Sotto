@@ -65,7 +65,7 @@ fun AiCard() {
     val scope = rememberCoroutineScope()
 
     val llm = AiSettings.summaryModel(ctx)
-    val needed = Models.TRANSCRIPTION + llm
+    val needed = Models.transcription(ctx) + llm
     val missing = needed.filter { states[it] != ModelState.Ready }
     val downloading = needed.mapNotNull { (states[it] as? ModelState.Downloading)?.fraction }
     val unpacking = needed.any { states[it] == ModelState.Unpacking }
@@ -192,6 +192,19 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
                     }
                 }
             }
+
+            Section("Transcription model")
+            var asr by remember { mutableStateOf(AiSettings.asrModel(ctx)) }
+            listOf(ModelId.PARAKEET, ModelId.WHISPER).forEach { m ->
+                Row(Modifier.fillMaxWidth().clickable { asr = m; AiSettings.setAsrModel(ctx, m) }, verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(asr == m, { asr = m; AiSettings.setAsrModel(ctx, m) }, colors = RadioButtonDefaults.colors(selectedColor = Palette.Accent))
+                    Column {
+                        Text(m.label, fontSize = 14.sp)
+                        Text(m.purpose.substringAfter("· "), fontSize = 12.sp, color = Palette.Muted)
+                    }
+                }
+            }
+            Text("After switching, open a note and tap Re-transcribe to redo it with the new model.", fontSize = 12.sp, color = Palette.Muted)
 
             Section("Summary model")
             listOf(ModelId.GEMMA_E2B, ModelId.GEMMA_E4B).forEach { m ->

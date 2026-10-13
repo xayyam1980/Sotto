@@ -11,6 +11,7 @@ import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization
 import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationConfig
 import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationModelConfig
 import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationPyannoteModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineWhisperModelConfig
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
@@ -26,7 +27,8 @@ import kotlin.math.sqrt
 /**
  * On-phone transcription, the same recipe that worked on the test recording:
  *  - cut at pauses into 6–14 s pieces, skip pieces with only background
- *  - Whisper turbo; if it guesses a language outside the allowed list, redo in the first one
+ *  - Parakeet v3 (fast, accurate, European languages) or Whisper turbo (all languages), set in Settings
+ *  - Whisper: if it guesses a language outside the allowed list, redo in the first one
  *  - drop/redo pieces where it loops ("что я не знаю, что я не знаю…")
  *  - speakers: pyannote turns + voice fingerprints, number of people found automatically;
  *    each turn is transcribed separately so lines don't mix people
@@ -34,6 +36,37 @@ import kotlin.math.sqrt
 class Transcriber(private val ctx: Context) : AutoCloseable {
     private val threads = max(2, Runtime.getRuntime().availableProcessors() - 2)
     private val recognizers = HashMap<String, OfflineRecognizer>()
+    private val engine = AiSettings.asrModel(ctx)
+    private var parakeetRec: OfflineRecognizer? = null
+
+    private fun parakeet(): OfflineRecognizer = parakeetRec ?: OfflineRecognizer(
+        config = OfflineRecognizerConfig(
+            modelConfig = OfflineModelConfig(
+                transducer = OfflineTransducerModelConfig(
+                    encoder = Models.parakeet(ctx, "encoder.int8.onnx"),
+                    decoder = Models.parakeet(ctx, "decoder.int8.onnx"),
+                    joiner = Models.parakeet(ctx, "joiner.int8.onnx"),
+                ),
+                tokens = Models.parakeet(ctx, "tokens.txt"),
+                numThreads = threads,
+                modelType = "nemo_transducer",
+            ),
+        ),
+    ).also { parakeetRec = it }
+
+    /** Parakeet finds the language itself; we only name it for the note. */
+    private fun decodeParakeet(samples: FloatArray, allowed: List<String>): Pair<String, String> {
+        val rec = parakeet()
+        val stream = rec.createStream()
+        try {
+            stream.acceptWaveform(samples, 16_000)
+            rec.decode(stream)
+            val text = rec.getResult(stream).text.trim()
+            return text to guessLanguage(text, allowed)
+        } finally {
+            stream.release()
+        }
+    }
 
     data class Result(val lang: String, val segments: List<Seg>, val speakers: Int, val speakerError: String? = null)
 
@@ -101,12 +134,18 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         pieces.forEachIndexed { i, p ->
             val piece = x.copyOfRange(p.a, p.b)
             val main = langTime.maxByOrNull { it.value }?.key
-            // Short bits ("yes", "ok") are too short to guess the language: use the one spoken so far
-            var (text, lang) = if (main != null && piece.size < 4 * 16_000) decode(piece, main) else decode(piece, "")
-            if (lang !in allowed) {
-                val r = decode(piece, main ?: fallback); text = r.first; lang = main ?: fallback
+            var text: String; var lang: String
+            if (engine == ModelId.PARAKEET) {
+                val r = decodeParakeet(piece, allowed); text = r.first; lang = r.second
+            } else {
+                // Short bits ("yes", "ok") are too short to guess the language: use the one spoken so far
+                val r = if (main != null && piece.size < 4 * 16_000) decode(piece, main) else decode(piece, "")
+                text = r.first; lang = r.second
+                if (lang !in allowed) {
+                    val r2 = decode(piece, main ?: fallback); text = r2.first; lang = main ?: fallback
+                }
             }
-            if (looksLikeLoop(text)) {
+            if (engine != ModelId.PARAKEET && looksLikeLoop(text)) {
                 val mid = piece.size / 2
                 text = listOf(decode(piece.copyOfRange(0, mid), lang).first, decode(piece.copyOfRange(mid, piece.size), lang).first)
                     .filterNot { looksLikeLoop(it) }.joinToString(" ")
@@ -228,8 +267,30 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             if (last != null && last[2] == t.spk && a - last[1] < 16_000 * 8 / 10) last[1] = max(last[1], t.b)
             else blocks += intArrayOf(a, t.b, t.spk)
         }
+        // Speech the speaker model missed (quiet or far voices): transcribe it too, with the nearest speaker
+        val speech = speechFrames(x)
+        val f = 16_000 / 50
+        val edges = listOf(intArrayOf(0, 0, -1)) + blocks + listOf(intArrayOf(size, size, -1))
+        val extra = mutableListOf<IntArray>()
+        for (i in 0 until edges.size - 1) {
+            val g0 = edges[i][1]; val g1 = edges[i + 1][0]
+            if (g1 - g0 < 16_000) continue
+            val frames = (g0 / f until min(speech.size, g1 / f)).filter { speech[it] }
+            if (frames.size < 15) continue // under 0.3 s of sound
+            val a = frames.first() * f; val b = min(size, (frames.last() + 1) * f)
+            val prev = edges[i].takeIf { it[2] >= 0 }; val next = edges[i + 1].takeIf { it[2] >= 0 }
+            val spk = when {
+                prev == null && next == null -> 0
+                prev == null -> next!![2]
+                next == null -> prev[2]
+                a - prev[1] <= next[0] - b -> prev[2]
+                else -> next[2]
+            }
+            extra += intArrayOf(a, b, spk)
+        }
+        val all = (blocks + extra).sortedBy { it[0] }
         val out = mutableListOf<Piece>()
-        for ((a0, b0, spk) in blocks.map { Triple(it[0], it[1], it[2]) }) {
+        for ((a0, b0, spk) in all.map { Triple(it[0], it[1], it[2]) }) {
             val a = max(0, a0 - pad); val b = min(size, b0 + pad)
             // short replies ("yes", "no") stay as their own line, so they keep their speaker
             if (b - a < 16_000 * 4 / 10) continue
@@ -242,6 +303,8 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
     override fun close() {
         recognizers.values.forEach { runCatching { it.release() } }
         recognizers.clear()
+        parakeetRec?.let { runCatching { it.release() } }
+        parakeetRec = null
     }
 
     companion object {
@@ -402,6 +465,31 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
                 if (keepAll || peak >= floor * 2.5f) out += a to b
             }
             return out
+        }
+
+        /** 20 ms frames that are clearly louder than the background. */
+        fun speechFrames(x: FloatArray): BooleanArray {
+            val f = 16_000 / 50
+            val n = x.size / f
+            if (n == 0) return BooleanArray(0)
+            val e = FloatArray(n) { k -> var s = 0.0; for (i in k * f until (k + 1) * f) s += x[i] * x[i]; sqrt(s / f).toFloat() }
+            val floor = e.sortedArray()[(n * 0.15).toInt().coerceAtMost(n - 1)].coerceAtLeast(1e-4f)
+            return BooleanArray(n) { e[it] >= floor * 2.5f }
+        }
+
+        /** Names the language of a transcribed line from its letters, among the user's languages. */
+        fun guessLanguage(text: String, allowed: List<String>): String {
+            val t = text.lowercase()
+            fun ok(l: String) = l in allowed
+            return when {
+                t.any { it in "іїєґ" } && ok("uk") -> "uk"
+                t.any { it in 'а'..'я' || it == 'ё' } -> if (ok("ru")) "ru" else if (ok("uk")) "uk" else allowed.firstOrNull() ?: "ru"
+                t.any { it in "ąćęłńśźż" } && ok("pl") -> "pl"
+                t.any { it in "äöüß" } && ok("de") -> "de"
+                t.any { it in "àâçèéêëîïôœùûÿ" } && ok("fr") -> "fr"
+                ok("en") -> "en"
+                else -> allowed.firstOrNull() ?: "en"
+            }
         }
 
         fun looksLikeLoop(text: String): Boolean {

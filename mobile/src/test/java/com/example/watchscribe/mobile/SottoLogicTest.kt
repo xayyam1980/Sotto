@@ -158,4 +158,20 @@ class SottoLogicTest {
         assertEquals(listOf(0, 0, 1, 1, 1, 1, 1), sm(0, 0, 1, 1, 0, 1, 1))
         assertEquals(listOf(2), sm(2))
     }
+
+    @Test fun namesTheLanguageOfALine() {
+        val enPl = listOf("en", "pl")
+        assertEquals("pl", Transcriber.guessLanguage("Dzień dobry, wyślę ofertę w poniedziałek.", enPl))
+        assertEquals("en", Transcriber.guessLanguage("We will send the offer on Monday.", enPl))
+        assertEquals("en", Transcriber.guessLanguage("Tak, dobrze", enPl)) // no Polish letters: can't tell, English
+        assertEquals("ru", Transcriber.guessLanguage("Привет, как дела?", listOf("ru", "en")))
+        assertEquals("uk", Transcriber.guessLanguage("Привіт, як справи?", listOf("uk", "ru")))
+    }
+
+    @Test fun findsSoundAboveTheBackground() {
+        val x = FloatArray(16_000 * 3) { i -> if (i in 16_000 until 32_000) (0.3 * sin(2 * PI * 200 * i / 16_000)).toFloat() else 0.001f }
+        val f = Transcriber.speechFrames(x)
+        assertTrue(f[75]) // 1.5 s: tone
+        assertFalse(f[10]) // 0.2 s: background
+    }
 }

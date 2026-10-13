@@ -16,7 +16,7 @@ blockquote{color:var(--muted);border-left:4px solid var(--line);margin:0;padding
 <p>Sotto turns a Wear OS watch into an always-on, speech-only note taker.
 The watch records when people talk. The phone turns each recording into a transcript with speakers, a summary and action items.
 <strong>Everything runs on your own devices. No account, no subscription, no cloud.</strong></p>
-<p>Created by <strong>Khayyam Bayramov</strong> · <a href="mailto:xayyam@gmail.com">xayyam@gmail.com</a> · Phone app 1.1 · Watch app 1.0</p>
+<p>Created by <strong>Khayyam Bayramov</strong> · <a href="mailto:xayyam@gmail.com">xayyam@gmail.com</a> · Phone app 1.2 · Watch app 1.0</p>
 <table>
 <thead>
 <tr>
@@ -57,6 +57,8 @@ The watch records when people talk. The phone turns each recording into a transc
 - Keeps recordings safely on the watch until the phone confirms it received them.</p>
 <p><strong>On the phone</strong>
 - <strong>Notes</strong>: all recordings, grouped by day or place, with search, filters, star, rename, delete (with undo) and multi-select.
+- <strong>Summary of the day</strong>: tap <strong>⋮</strong> next to a day for a digest of all its notes: overview, decisions, to-dos, people. It works for a selection of notes too.
+- <strong>Delete a whole day</strong> from the same <strong>⋮</strong> menu, or select notes and tap <strong>Delete</strong>.
 - <strong>Transcripts with speakers</strong> (S1, S2…). Tap a line to play from that moment. Marks from the watch are highlighted.
   The number of people is found automatically. If it's wrong, tap the right number on the note.
 - <strong>Progress on every note</strong>: "Transcribing 42%" and "Summarising…" show on the note itself.
@@ -98,7 +100,7 @@ The watch records when people talk. The phone turns each recording into a transc
 <h2>Install</h2>
 <h3>1. Phone</h3>
 <ol>
-<li>Copy <strong><code>Sotto-phone-1.1.apk</code></strong> to the phone (Drive, e-mail, USB cable…).</li>
+<li>Copy <strong><code>Sotto-phone-1.2.apk</code></strong> to the phone (Drive, e-mail, USB cable…).</li>
 <li>Open it. If Android asks, allow <strong>Install unknown apps</strong> for that app once.</li>
 <li>Open <strong>Sotto</strong> and allow notifications, location (optional, for Places) and the microphone when asked.</li>
 </ol>
@@ -119,8 +121,8 @@ The watch records when people talk. The phone turns each recording into a transc
 <p>Coming from an early test build (before 1.0), signed with a different key? Then one uninstall is unavoidable. <strong>Export your notes first.</strong></p>
 </blockquote>
 <h3>3. One-time AI setup (on the phone, Wi-Fi)</h3>
-<p>On the <strong>Notes</strong> screen, the <strong>AI card</strong> shows <strong>Download</strong>. It fetches the models once, about 3.2 GB:
-- <strong>Whisper turbo</strong> for transcription
+<p>On the <strong>Notes</strong> screen, the <strong>AI card</strong> shows <strong>Download</strong>. It fetches the models once, about 3.1 GB:
+- <strong>Parakeet v3</strong> for transcription: fast and accurate for English, Polish, Russian, Ukrainian, German, French and 19 more European languages. For other languages (such as Azerbaijani or Turkish), choose <strong>Whisper turbo</strong> in Settings.
 - <strong>Speaker detection</strong> to tell who is speaking
 - <strong>Gemma 4 E2B</strong> for summaries and Ask; <strong>E4B</strong> in Settings is slower but better</p>
 <p>Downloads continue in the background, over Wi-Fi only.</p>
@@ -167,6 +169,14 @@ The watch records when people talk. The phone turns each recording into a transc
 <td>Open the note → <strong>Share</strong>, or long-press notes → <strong>Export</strong></td>
 </tr>
 <tr>
+<td>Summarise a day</td>
+<td>Next to the day's name, <strong>⋮ → Summary of the day</strong></td>
+</tr>
+<tr>
+<td>Delete a day</td>
+<td><strong>⋮ → Delete the day…</strong> (Undo appears for a few seconds)</td>
+</tr>
+<tr>
 <td>Get a deeper analysis</td>
 <td>Open the note → <strong>Open in Claude</strong> / <strong>Open in Gemini</strong></td>
 </tr>
@@ -175,6 +185,7 @@ The watch records when people talk. The phone turns each recording into a transc
 <p><strong>Tip:</strong> leave the phone on the charger overnight and every note of the day is transcribed and summarised by morning.</p>
 <h3>Settings (gear on the AI card)</h3>
 <ul>
+<li><strong>Transcription model:</strong> Parakeet v3 (default when all your languages are supported) or Whisper turbo (all languages, slower).</li>
 <li><strong>Languages you speak:</strong> transcription chooses only from these. The first one is the fallback.</li>
 <li><strong>Summary model</strong> and <strong>summaries in</strong> (English or the recording's language).</li>
 <li><strong>Only while charging</strong> (recommended).</li>
@@ -246,7 +257,7 @@ The watch records when people talk. The phone turns each recording into a transc
   It is signed with <code>sotto-release.jks</code> + <code>keystore.properties</code>.
   <strong>Keep both private and backed up.</strong> Updates must use the same key.</li>
 <li>Key libraries:</li>
-<li><a href="https://github.com/k2-fsa/sherpa-onnx">sherpa-onnx</a> for Whisper and speaker detection</li>
+<li><a href="https://github.com/k2-fsa/sherpa-onnx">sherpa-onnx</a> for Parakeet, Whisper and speaker detection</li>
 <li><a href="https://github.com/google-ai-edge/LiteRT-LM">LiteRT-LM</a> for Gemma</li>
 <li><a href="https://maplibre.org">MapLibre</a> with <a href="https://openfreemap.org">OpenFreeMap</a> for the map</li>
 </ul>

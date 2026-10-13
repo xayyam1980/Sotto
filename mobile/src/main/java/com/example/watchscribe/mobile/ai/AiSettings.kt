@@ -19,6 +19,16 @@ object AiSettings {
     fun setLanguages(ctx: Context, langs: List<String>) =
         p(ctx).edit().putString("langs", langs.joinToString(",")).apply()
 
+    /** Languages Parakeet v3 understands (of the ones Sotto offers). */
+    val PARAKEET_LANGUAGES = setOf("en", "pl", "ru", "uk", "de", "fr")
+
+    /** Speech model: the one chosen in Settings, else Parakeet when it covers all the user's languages. */
+    fun asrModel(ctx: Context): ModelId =
+        p(ctx).getString("asr", null)?.let { runCatching { ModelId.valueOf(it) }.getOrNull() }
+            ?: if (languages(ctx).all { it in PARAKEET_LANGUAGES }) ModelId.PARAKEET else ModelId.WHISPER
+
+    fun setAsrModel(ctx: Context, m: ModelId) = p(ctx).edit().putString("asr", m.name).apply()
+
     fun summaryModel(ctx: Context): ModelId =
         runCatching { ModelId.valueOf(p(ctx).getString("llm", ModelId.GEMMA_E2B.name)!!) }.getOrDefault(ModelId.GEMMA_E2B)
 

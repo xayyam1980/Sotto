@@ -33,7 +33,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Place
@@ -95,6 +98,9 @@ fun LibraryScreen(
     val visible = opts.apply(all)
     val groups = opts.group(visible)
     val selecting = selection.isNotEmpty()
+    var digest by remember { mutableStateOf<Pair<String, List<Recording>>?>(null) }
+    var deleting by remember { mutableStateOf<Pair<String, List<Recording>>?>(null) }
+    var menuFor by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         containerColor = Palette.Ground,
@@ -105,6 +111,10 @@ fun LibraryScreen(
                 onExport = { onExport(selection.toList()) },
                 onStar = { onStar(selection.toList(), !selection.all { id -> all.firstOrNull { it.id == id }?.starred == true }) },
                 onDelete = { onDelete(selection.toList()) },
+                onSummary = {
+                    val picked = all.filter { it.id in selection }
+                    digest = "Summary of ${picked.size} ${if (picked.size == 1) "note" else "notes"}" to picked
+                },
             ) else bottomNav()
         },
         floatingActionButton = {
@@ -149,6 +159,32 @@ fun LibraryScreen(
                             TextButton(onClick = { onSelectionChange(selection + list.map { it.id }) }) { Text("Select all", fontSize = 13.sp) }
                         } else {
                             Text(totalLabel(list), fontSize = 12.sp, color = Palette.Muted, fontFamily = FontFamily.Monospace)
+                            Box {
+                                IconButton(onClick = { menuFor = label }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Rounded.MoreVert, "Actions for $label", Modifier.size(20.dp), tint = Palette.Muted)
+                                }
+                                androidx.compose.material3.DropdownMenu(
+                                    expanded = menuFor == label, onDismissRequest = { menuFor = null },
+                                    containerColor = Palette.Surface,
+                                ) {
+                                    val isDay = opts.groupBy == GroupBy.DAY
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(if (isDay) "Summary of the day" else "Summary of these notes") },
+                                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
+                                        onClick = { menuFor = null; digest = "$label · summary" to list },
+                                    )
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text("Select these notes") },
+                                        leadingIcon = { Icon(Icons.Rounded.CheckCircle, null) },
+                                        onClick = { menuFor = null; onSelectionChange(list.map { it.id }.toSet()) },
+                                    )
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(if (isDay) "Delete the day…" else "Delete these notes…", color = Palette.Danger) },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Palette.Danger) },
+                                        onClick = { menuFor = null; deleting = label to list },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -166,6 +202,12 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+    digest?.let { (title, notes) ->
+        DigestSheet(title, notes, onOpen = { id -> digest = null; onOpen(id) }, onDismiss = { digest = null })
+    }
+    deleting?.let { (label, notes) ->
+        DeleteGroupDialog(label, notes.size, onConfirm = { deleting = null; onDelete(notes.map { it.id }) }, onDismiss = { deleting = null })
     }
 }
 
@@ -305,11 +347,12 @@ private fun SelectionHeader(count: Int, onClose: () -> Unit, onAll: () -> Unit) 
 }
 
 @Composable
-private fun SelectionBar(onShare: () -> Unit, onExport: () -> Unit, onStar: () -> Unit, onDelete: () -> Unit) {
+private fun SelectionBar(onShare: () -> Unit, onExport: () -> Unit, onStar: () -> Unit, onDelete: () -> Unit, onSummary: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().background(Palette.Surface).padding(top = 8.dp, bottom = 24.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
+        BarAction(Icons.Rounded.AutoAwesome, "Summary", Palette.Text, onSummary)
         BarAction(Icons.Rounded.Share, "Share", Palette.Text, onShare)
         BarAction(Icons.Rounded.Download, "Export", Palette.Text, onExport)
         BarAction(Icons.Rounded.Star, "Star", Palette.Text, onStar)

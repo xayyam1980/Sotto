@@ -87,7 +87,7 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         val allowed = AiSettings.languages(ctx)
 
         // 1) Transcribe (new notes, and notes the user asked to redo). Loops, so notes added meanwhile are done too.
-        if (Models.TRANSCRIPTION.first().let { Models.isReady(ctx, it) }) {
+        if (Models.isReady(ctx, AiSettings.asrModel(ctx))) {
             val failed = HashSet<String>()
             var asr: Transcriber? = null
             try {

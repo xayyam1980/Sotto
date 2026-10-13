@@ -8,7 +8,7 @@ Sotto turns a Wear OS watch into an always-on, speech-only note taker.
 The watch records when people talk. The phone turns each recording into a transcript with speakers, a summary and action items.
 **Everything runs on your own devices. No account, no subscription, no cloud.**
 
-Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) · Phone app 1.1 · Watch app 1.0
+Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) · Phone app 1.2 · Watch app 1.0
 
 | Notes | A note | Watch control |
 |---|---|---|
@@ -32,6 +32,8 @@ Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) �
 
 **On the phone**
 - **Notes**: all recordings, grouped by day or place, with search, filters, star, rename, delete (with undo) and multi-select.
+- **Summary of the day**: tap **⋮** next to a day for a digest of all its notes: overview, decisions, to-dos, people. It works for a selection of notes too.
+- **Delete a whole day** from the same **⋮** menu, or select notes and tap **Delete**.
 - **Transcripts with speakers** (S1, S2…). Tap a line to play from that moment. Marks from the watch are highlighted.
   The number of people is found automatically. If it's wrong, tap the right number on the note.
 - **Progress on every note**: "Transcribing 42%" and "Summarising…" show on the note itself.
@@ -61,7 +63,7 @@ The phone app also works **without a watch**, using **Record with phone**.
 ## Install
 
 ### 1. Phone
-1. Copy **`Sotto-phone-1.1.apk`** to the phone (Drive, e-mail, USB cable…).
+1. Copy **`Sotto-phone-1.2.apk`** to the phone (Drive, e-mail, USB cable…).
 2. Open it. If Android asks, allow **Install unknown apps** for that app once.
 3. Open **Sotto** and allow notifications, location (optional, for Places) and the microphone when asked.
 
@@ -86,8 +88,8 @@ If you do uninstall, Android asks **"Keep app data?"**. Tick it, and the notes a
 > Coming from an early test build (before 1.0), signed with a different key? Then one uninstall is unavoidable. **Export your notes first.**
 
 ### 3. One-time AI setup (on the phone, Wi-Fi)
-On the **Notes** screen, the **AI card** shows **Download**. It fetches the models once, about 3.2 GB:
-- **Whisper turbo** for transcription
+On the **Notes** screen, the **AI card** shows **Download**. It fetches the models once, about 3.1 GB:
+- **Parakeet v3** for transcription: fast and accurate for English, Polish, Russian, Ukrainian, German, French and 19 more European languages. For other languages (such as Azerbaijani or Turkish), choose **Whisper turbo** in Settings.
 - **Speaker detection** to tell who is speaking
 - **Gemma 4 E2B** for summaries and Ask; **E4B** in Settings is slower but better
 
@@ -107,11 +109,14 @@ Downloads continue in the background, over Wi-Fi only.
 | Process notes right away | AI card → **Now**. By default processing runs **while charging**. |
 | Find something said last week | **Ask** tab, e.g. "What did I promise Anna?" |
 | Send a note to someone | Open the note → **Share**, or long-press notes → **Export** |
+| Summarise a day | Next to the day's name, **⋮ → Summary of the day** |
+| Delete a day | **⋮ → Delete the day…** (Undo appears for a few seconds) |
 | Get a deeper analysis | Open the note → **Open in Claude** / **Open in Gemini** |
 
 **Tip:** leave the phone on the charger overnight and every note of the day is transcribed and summarised by morning.
 
 ### Settings (gear on the AI card)
+- **Transcription model:** Parakeet v3 (default when all your languages are supported) or Whisper turbo (all languages, slower).
 - **Languages you speak:** transcription chooses only from these. The first one is the fallback.
 - **Summary model** and **summaries in** (English or the recording's language).
 - **Only while charging** (recommended).
@@ -158,7 +163,7 @@ Downloads continue in the background, over Wi-Fi only.
   It is signed with `sotto-release.jks` + `keystore.properties`.
   **Keep both private and backed up.** Updates must use the same key.
 - Key libraries:
-  - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for Whisper and speaker detection
+  - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for Parakeet, Whisper and speaker detection
   - [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) for Gemma
   - [MapLibre](https://maplibre.org) with [OpenFreeMap](https://openfreemap.org) for the map
 

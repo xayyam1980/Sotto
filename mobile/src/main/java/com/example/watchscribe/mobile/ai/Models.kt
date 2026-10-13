@@ -19,8 +19,13 @@ enum class ModelId(
     val fileName: String,        // downloaded file
     val archive: Boolean,
 ) {
+    PARAKEET(
+        "Parakeet v3", "Transcription · fast, English, Polish + 23 European languages",
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+        500_000_000, "parakeet-v3.tar.bz2", true,
+    ),
     WHISPER(
-        "Whisper turbo", "Transcription",
+        "Whisper turbo", "Transcription · all languages, slower",
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-turbo.tar.bz2",
         563_790_207, "whisper-turbo.tar.bz2", true,
     ),
@@ -75,12 +80,14 @@ object Models {
     fun whisperEncoder(ctx: Context) = File(dir(ctx), "sherpa-onnx-whisper-turbo/turbo-encoder.int8.onnx").path
     fun whisperDecoder(ctx: Context) = File(dir(ctx), "sherpa-onnx-whisper-turbo/turbo-decoder.int8.onnx").path
     fun whisperTokens(ctx: Context) = File(dir(ctx), "sherpa-onnx-whisper-turbo/turbo-tokens.txt").path
+    private const val PARAKEET_DIR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+    fun parakeet(ctx: Context, part: String) = File(dir(ctx), "$PARAKEET_DIR/$part").path
     fun segmentation(ctx: Context) = File(dir(ctx), "sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx").path
     fun voiceEmbedding(ctx: Context) = File(dir(ctx), ModelId.VOICES.fileName).path
     fun gemma(ctx: Context, m: ModelId) = File(dir(ctx), m.fileName).path
 
-    /** Models needed for transcription with speaker labels. */
-    val TRANSCRIPTION = listOf(ModelId.WHISPER, ModelId.SPEAKERS, ModelId.VOICES)
+    /** Models needed for transcription with speaker labels, with the speech model chosen in Settings. */
+    fun transcription(ctx: Context) = listOf(AiSettings.asrModel(ctx), ModelId.SPEAKERS, ModelId.VOICES)
 
     fun download(ctx: Context, m: ModelId) {
         if (isReady(ctx, m) || prefs(ctx).getLong(m.name, -1L) >= 0) return
@@ -101,6 +108,7 @@ object Models {
         marker(ctx, m).delete()
         File(dir(ctx), m.fileName).delete()
         if (m == ModelId.WHISPER) File(dir(ctx), "sherpa-onnx-whisper-turbo").deleteRecursively()
+        if (m == ModelId.PARAKEET) File(dir(ctx), PARAKEET_DIR).deleteRecursively()
         if (m == ModelId.SPEAKERS) File(dir(ctx), "sherpa-onnx-pyannote-segmentation-3-0").deleteRecursively()
         refresh(ctx)
     }
