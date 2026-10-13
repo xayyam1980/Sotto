@@ -21,6 +21,25 @@ object Stats {
         pr.edit().putString("day", d).putFloat("seconds", sec).putInt("notes", n).apply()
     }
 
+    /** Takes forgotten audio off today's totals. */
+    @Synchronized
+    fun remove(ctx: Context, seconds: Double, notes: Int) {
+        val pr = p(ctx)
+        if (pr.getString("day", null) != today()) return
+        pr.edit()
+            .putFloat("seconds", (pr.getFloat("seconds", 0f) - seconds.toFloat()).coerceAtLeast(0f))
+            .putInt("notes", (pr.getInt("notes", 0) - notes).coerceAtLeast(0))
+            .apply()
+    }
+
+    /** "Forget" ranges (from,to epoch millis) the phone hasn't confirmed yet. */
+    fun pendingForgets(ctx: Context): List<String> =
+        p(ctx).getString("forget", "").orEmpty().split(';').filter { it.isNotBlank() }
+
+    @Synchronized
+    fun setPendingForgets(ctx: Context, list: List<String>) =
+        p(ctx).edit().putString("forget", list.joinToString(";")).apply()
+
     /** Seconds captured today and number of notes today. */
     fun today(ctx: Context): Pair<Int, Int> {
         val pr = p(ctx)
@@ -47,5 +66,11 @@ object Stats {
     fun duration(sec: Int): String = when {
         sec >= 3600 -> "${sec / 3600} h ${sec / 60 % 60} min"
         else -> "${(sec + 59) / 60} min"
+    }
+
+    /** Very short form for a watch-face complication: "12m", "1h05". */
+    fun shortDuration(sec: Int): String = when {
+        sec >= 3600 -> "%dh%02d".format(sec / 3600, sec / 60 % 60)
+        else -> "${(sec + 59) / 60}m"
     }
 }

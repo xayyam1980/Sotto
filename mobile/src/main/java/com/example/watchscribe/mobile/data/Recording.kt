@@ -28,6 +28,7 @@ data class Recording(
     val redo: Int? = null,       // waiting to be transcribed again: number of speakers, -1 = automatic
     val names: List<String?> = emptyList(), // known people per speaker (S1, S2…), null = unknown
     val audioDeleted: Boolean = false,      // audio removed by "Keep audio" setting; text kept
+    val memo: Boolean = false,              // "Note to self" from the watch: becomes a to-do
 ) {
     /** Short label for a speaker: the person's name, else S1, S2… */
     fun who(spk: Int?): String? = spk?.let { names.getOrNull(it) ?: "S${it + 1}" }

@@ -89,6 +89,7 @@ object RecordingStore {
             redo = if (meta.has("redo")) meta.getInt("redo") else null,
             names = tr?.optJSONArray("names")?.let { a -> List(a.length()) { if (a.isNull(it)) null else a.optString(it).ifBlank { null } } } ?: emptyList(),
             audioDeleted = meta.optBoolean("audioDeleted", false),
+            memo = meta.optBoolean("memo", false),
         )
     }
 
@@ -102,6 +103,53 @@ object RecordingStore {
     fun setMarks(ctx: Context, id: String, marks: List<Double>) {
         editMeta(ctx, id) { it.put("marks", JSONArray(marks)) }
         refresh(ctx)
+    }
+
+    fun setMemo(ctx: Context, id: String) {
+        editMeta(ctx, id) { it.put("memo", true) }
+        refresh(ctx)
+    }
+
+    /**
+     * The watch's "Forget the last minutes": watch notes recorded between [from] and [to] are deleted,
+     * and a note that started earlier is cut at [from] and transcribed again. Phone notes are left alone.
+     */
+    fun forget(ctx: Context, from: Long, to: Long) {
+        refresh(ctx)
+        for (r in _items.value) {
+            if (r.start > to || com.example.watchscribe.mobile.PhoneRecorder.isPhoneNote(ctx, r.id)) continue
+            val end = r.start + (r.seconds * 1000).toLong()
+            if (end <= from) continue
+            val keep = (from - r.start) / 1000.0
+            runCatching {
+                if (keep < 1.5) {
+                    File(chunkDir(ctx), r.id).delete()
+                    File(rawDir(ctx), r.id).delete()
+                    File(metaDir(ctx), "${r.id}.json").delete()
+                } else {
+                    if (!r.audioDeleted) {
+                        Wav.trim(r.clean, keep)
+                        r.raw?.let { Wav.trim(it, keep) }
+                    }
+                    editMeta(ctx, r.id) { m ->
+                        m.remove("peaks"); m.remove("seconds"); m.remove("ai")
+                        m.optJSONArray("marks")?.let { a ->
+                            m.put("marks", JSONArray((0 until a.length()).map { a.getDouble(it) }.filter { it <= keep }))
+                        }
+                        if (r.audioDeleted) {
+                            // no audio to transcribe again: cut the transcript instead
+                            m.optJSONObject("transcript")?.let { t ->
+                                val segs = t.optJSONArray("segments") ?: JSONArray()
+                                t.put("segments", JSONArray((0 until segs.length()).map { segs.getJSONObject(it) }.filter { it.optDouble("t0") < keep }))
+                            }
+                            m.put("seconds", keep)
+                        } else m.remove("transcript")
+                    }
+                }
+            }
+        }
+        refresh(ctx)
+        com.example.watchscribe.mobile.ai.ProcessWorker.schedule(ctx)
     }
 
     fun setSync(ctx: Context, id: String, state: String?) {

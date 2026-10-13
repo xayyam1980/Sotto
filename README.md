@@ -26,7 +26,13 @@ Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) �
 
 **On the watch**
 - Listens all day but **saves only speech**; silence is skipped.
-- **Tile** on the watch face shows live status and recording time. It also has **Pause** (15 min, 1 h or until resumed), **Mark** (bookmark an important moment) and **Sync**.
+- **Tile** shows live status, recording time and an estimate of the battery left (for example "~9 h battery"). Its buttons:
+  - **Pause**: 15 min, 1 h or until resumed.
+  - **Mark**: bookmarks an important moment.
+  - **Note to self**: a short memo that arrives on the phone as a to-do.
+  - **Forget**: deletes the last 5 min, 15 min or hour, on the watch and the phone.
+- **Watch-face complication** shows Live / Paused / Off and today's minutes. Tap it to open Sotto.
+- **Battery saver**: below 20 % Sotto skips the extra audio effects and syncs every 30 minutes instead of after every note.
 - Sends recordings to the phone over a **direct Bluetooth/Wi-Fi link only**.
 - Keeps recordings safely on the watch until the phone confirms it received them.
 
@@ -94,6 +100,7 @@ A watch can't open an APK file directly, so it is installed from a computer once
    ```
 4. Open **Sotto** on the watch, tap **Start** and allow the microphone and notifications.
 5. Add the tile: swipe left on the watch face → **+** → **Sotto**.
+6. Optional: add the complication. Long-press the watch face → **Edit** → **Complications** → pick a slot → **Sotto**.
 
 ### Updating (keeps your notes and AI models)
 Install the new APK **over the old one; don't uninstall first**. Android keeps all notes and the downloaded models, because every Sotto release is signed with the same key.
@@ -117,6 +124,8 @@ Downloads continue in the background, over Wi-Fi only.
 | Start listening | Watch tile → **Start**, or phone **Watch tab → Start listening** |
 | Pause for a meeting break | Tile → **⏸** → 15 min / 1 h / until resumed |
 | Remember an important moment | Tile → **🔖 Mark** (highlighted in the transcript) |
+| Remind myself of something | Tile → **☑ Note to self**, say it, tap **Done**. It arrives on the phone as a note titled "To-do: …" |
+| Take back something just said | Tile → **Forget last…** → 5 min / 15 min / 1 hour. The audio is deleted from the watch and the phone |
 | Get the latest notes on the phone now | Phone Notes → **Sync**, or Watch tab → **Sync now** |
 | Record a meeting with the phone | Notes → **Record with phone** → choose **Mic** (phone or headset) → **Start** → confirm everyone agreed |
 | Process notes right away | AI card → **Now**. By default processing runs **while charging**. |
@@ -173,6 +182,7 @@ Downloads continue in the background, over Wi-Fi only.
 | Two people, but only S1 | Open the note and tap **Speakers → 2**. Speaker labels are per note; S1 in one note isn't necessarily S1 in another. |
 | Music or Google Translate in my earbuds while recording | Earbud mics only work in "call mode", which lowers music to call quality and competes with Translate for the mic. If the earbuds are busy when you start, Sotto records with the phone's mic instead. If another app takes the mic, Sotto pauses and says so. Best: record with the **watch**, which has its own mic. |
 | Models download again after reinstalling | Install updates over the old app instead of uninstalling (see *Updating*). |
+| Tile shows "Battery saver" | The watch is below 20 %. Sotto keeps listening but syncs every 30 minutes. Charge the watch to return to normal. |
 | Lots of "Unknown place" | Allow location **all the time**. GPS may not get a fix indoors. |
 
 ---

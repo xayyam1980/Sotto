@@ -44,7 +44,7 @@ import java.time.Instant
 class RecorderTileService : TileService() {
 
     private companion object {
-        const val RES = "2"
+        const val RES = "3"
         const val ID_MARK = "mark"
         const val ID_RESUME = "resume"
         const val ID_EXTEND = "extend"
@@ -91,6 +91,7 @@ class RecorderTileService : TileService() {
         mapOf(
             "pause" to R.drawable.ic_pause, "play" to R.drawable.ic_play, "mark" to R.drawable.ic_mark,
             "mark_on" to R.drawable.ic_mark_filled, "sync" to R.drawable.ic_sync, "mic" to R.drawable.ic_mic,
+            "forget" to R.drawable.ic_forget, "memo" to R.drawable.ic_memo,
         ).forEach { (id, res) ->
             b.addIdToImageMapping(id, ResourceBuilders.ImageResource.Builder()
                 .setAndroidResourceByResId(ResourceBuilders.AndroidImageResourceByResId.Builder().setResourceId(res).build())
@@ -117,15 +118,22 @@ class RecorderTileService : TileService() {
     private fun listeningLayout(device: DeviceParameters): LayoutElement {
         val (sec, notes) = Stats.today(this)
         val waiting = RecorderService.savedChunks(this).size
+        // second line: battery estimate and anything still waiting for the phone
+        val info = listOfNotNull(
+            Battery.label(this),
+            if (waiting > 0) "$waiting waiting" else null,
+        ).joinToString(" · ").ifEmpty { "✓ All synced" }
+        val low = RecorderService.lightMode
         return PrimaryLayout.Builder(device)
             .setPrimaryLabelTextContent(label("sotto"))
             .setContent(column(
-                text("● Listening", Typography.TYPOGRAPHY_TITLE2, WHITE),
+                text("● Listening", Typography.TYPOGRAPHY_TITLE3, WHITE),
                 text("Today ${Stats.duration(sec)} · $notes ${if (notes == 1) "note" else "notes"}", Typography.TYPOGRAPHY_CAPTION2, MUTED),
-                spacer(8f),
-                row(pauseButton(), spacerW(14f), markButton(false)),
+                text(info, Typography.TYPOGRAPHY_CAPTION2, if (low) AMBER else if (waiting == 0) GREEN else MUTED),
+                spacer(6f),
+                row(pauseButton(), spacerW(8f), markButton(false), spacerW(8f), memoButton()),
             ))
-            .setPrimaryChipContent(syncChip(device, waiting))
+            .setPrimaryChipContent(forgetChip(device))
             .build()
     }
 
@@ -149,7 +157,7 @@ class RecorderTileService : TileService() {
                 text("● Capturing", Typography.TYPOGRAPHY_TITLE2, LIVE),
                 dynamicText(staticClock, clock, "00:00", if (marks > 0) " · $marks marked" else ""),
                 spacer(8f),
-                row(pauseButton(), spacerW(14f), markButton(marks > 0)),
+                row(pauseButton(), spacerW(8f), markButton(marks > 0), spacerW(8f), forgetButton()),
             ))
             .build()
     }
@@ -247,7 +255,7 @@ class RecorderTileService : TileService() {
         Button.Builder(this, clickable)
             .setIconContent(icon)
             .setContentDescription(desc)
-            .setSize(ButtonDefaults.DEFAULT_SIZE)
+            .setSize(dp(46f))
             .setButtonColors(ButtonColors(bg, fg))
             .build()
 
@@ -255,15 +263,21 @@ class RecorderTileService : TileService() {
     private fun markButton(on: Boolean) =
         if (on) iconButton(ID_MARK, "mark_on", "Mark this moment again", AMBER, ON_AMBER, load(ID_MARK))
         else iconButton(ID_MARK, "mark", "Mark this moment", ACCENT, ON_ACCENT, load(ID_MARK))
+    private fun memoButton() = iconButton("memo", "memo", "Note to self", SURFACE, WHITE, launch(MemoActivity::class.java.name))
+    private fun forgetButton() = iconButton("forget", "forget", "Forget the last minutes", SURFACE, LIVE, launch(ForgetActivity::class.java.name))
+    private fun forgetChip(device: DeviceParameters) =
+        CompactChip.Builder(this, "Forget last…", launch(ForgetActivity::class.java.name), device)
+            .setChipColors(ChipColors(SURFACE, LIVE))
+            .build()
     private fun resumeButton() = iconButton(ID_RESUME, "play", "Resume listening", ACCENT, ON_ACCENT, load(ID_RESUME))
     private fun extendButton() = Button.Builder(this, load(ID_EXTEND))
         .setTextContent("+15", Typography.TYPOGRAPHY_CAPTION1)
         .setContentDescription("Pause 15 minutes longer")
-        .setSize(ButtonDefaults.DEFAULT_SIZE)
+        .setSize(dp(46f))
         .setButtonColors(ButtonColors(SURFACE, WHITE))
         .build()
 
-    private fun syncChip(device: DeviceParameters, waiting: Int) =
+    @Suppress("unused") private fun syncChip(device: DeviceParameters, waiting: Int) =
         CompactChip.Builder(this, if (waiting == 0) "✓ All synced" else "$waiting waiting · Sync", load(ID_SYNC), device)
             .setChipColors(ChipColors(SURFACE, if (waiting == 0) GREEN else WHITE))
             .build()

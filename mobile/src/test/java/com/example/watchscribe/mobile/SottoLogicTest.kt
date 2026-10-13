@@ -227,4 +227,25 @@ class SottoLogicTest {
         assertFalse(Transcriber.mixedScripts("Моя одежда отразит огонь."))
         assertFalse(Transcriber.mixedScripts("We use Jira and Confluence."))
     }
+
+    @Test fun memoTitleIsShortToDo() {
+        assertEquals("To-do: Call Anna about the invoice", com.example.watchscribe.mobile.ai.ProcessWorker.memoTitle("call Anna about the invoice."))
+        val long = com.example.watchscribe.mobile.ai.ProcessWorker.memoTitle("remember to book the flight to Warsaw and the hotel near the office for next week")
+        org.junit.Assert.assertTrue(long, long.endsWith("…") && long.length <= 7 + 49)
+    }
+
+    @Test fun channelQuery() {
+        val q = ChunkReceiverService.query("/chunk/chunk_20261013_104205.wav?m=12.3,45.0&memo=1")
+        assertEquals("12.3,45.0", q["m"])
+        assertEquals("1", q["memo"])
+        assertEquals(emptyMap<String, String>(), ChunkReceiverService.query("/chunk/chunk_20261013_104205.wav"))
+    }
+
+    @Test fun wavTrim() {
+        val f = java.io.File.createTempFile("n", ".wav")
+        f.writeBytes(com.example.watchscribe.mobile.data.Wav.header(16_000, 16_000L * 2 * 6) + ByteArray(16_000 * 2 * 6))
+        com.example.watchscribe.mobile.data.Wav.trim(f, 2.5)
+        assertEquals(2.5, com.example.watchscribe.mobile.data.Wav.seconds(f), 0.001)
+        f.delete()
+    }
 }

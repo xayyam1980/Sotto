@@ -55,6 +55,13 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         }
 
         /** Start right away, even on battery. A run in progress picks up new work itself. */
+        /** "To-do: Call Anna about the invoice" from what was said in a note to self. */
+        internal fun memoTitle(said: String): String {
+            val t = said.trim().trimEnd('.', '!', '?').replaceFirstChar { it.uppercase() }
+            val short = if (t.length <= 48) t else t.take(48).substringBeforeLast(' ').ifBlank { t.take(48) } + "…"
+            return "To-do: $short"
+        }
+
         fun runNow(ctx: Context) {
             val running = runCatching {
                 WorkManager.getInstance(ctx).getWorkInfosForUniqueWork(WORK).get().any { it.state == androidx.work.WorkInfo.State.RUNNING }
@@ -105,15 +112,22 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                     var shown = -1
                     try {
                         val engine = asr ?: Transcriber(ctx).also { asr = it }
-                        val res = engine.transcribe(r.raw ?: r.clean, allowed, r.redo ?: -1) { p ->
+                        // a note to self is one voice: skip speaker detection
+                        val res = engine.transcribe(r.raw ?: r.clean, allowed, r.redo ?: if (r.memo) 1 else -1) { p ->
                             val pct = (p * 100).toInt()
                             _status.value = "$label · $pct%"
                             job(r.id, Job("Transcribing", p))
                             if (pct / 5 != shown) { shown = pct / 5; setForegroundAsync(info("$label · $pct%", p)) }
                         }
                         RecordingStore.setTranscript(ctx, r.id, res.lang, res.segments, res.speakers, res.speakerError, res.voices)
-                        // a redone transcript gets a fresh summary
-                        if (r.redo != null && r.summary != null && Gemma.available(ctx)) RecordingStore.clearAi(ctx, r.id, transcriptToo = false)
+                        val said = res.segments.joinToString(" ") { it.text.trim() }.trim()
+                        if (r.memo && said.isNotEmpty()) {
+                            // a note to self is already a to-do: no summary needed
+                            RecordingStore.setAi(ctx, r.id, memoTitle(said), said, listOf(said))
+                        } else if (r.redo != null && r.summary != null && Gemma.available(ctx)) {
+                            // a redone transcript gets a fresh summary
+                            RecordingStore.clearAi(ctx, r.id, transcriptToo = false)
+                        }
                     } catch (t: Throwable) {
                         Log.e(TAG, "Transcription failed for ${r.id}", t)
                         failed += r.id

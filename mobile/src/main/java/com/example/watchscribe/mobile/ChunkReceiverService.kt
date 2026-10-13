@@ -24,15 +24,27 @@ class ChunkReceiverService : WearableListenerService() {
         private val NAME = Regex("^chunk_\\d{8}_\\d{6}\\.wav$")
         /** True only for the watch's own chunk file names. */
         internal fun isValidName(name: String) = NAME.matches(name)
+        /** "a=1&b=2" after the '?' of a channel path. */
+        internal fun query(path: String): Map<String, String> =
+            path.substringAfter('?', "").split('&').filter { '=' in it }
+                .associate { it.substringBefore('=') to it.substringAfter('=') }
         private const val MAX_BYTES = 200L * 1024 * 1024 // a 5-min watch chunk is ~19 MB
     }
 
     override fun onMessageReceived(event: MessageEvent) {
-        if (event.path == "/watch/status") WatchSync.onStatus(this, String(event.data))
+        when (event.path) {
+            "/watch/status" -> WatchSync.onStatus(this, String(event.data))
+            // "Forget the last minutes" on the watch: body "from,to" (epoch millis)
+            "/watch/forget" -> {
+                val (from, to) = String(event.data).split(',').mapNotNull { it.trim().toLongOrNull() }
+                    .takeIf { it.size == 2 } ?: return
+                RecordingStore.forget(this, from, to)
+            }
+        }
     }
 
     override fun onChannelOpened(channel: ChannelClient.Channel) {
-        // Path: /chunk/<name>.wav  or  /chunk/<name>.wav?m=12.3,45.0  (marks in seconds)
+        // Path: /chunk/<name>.wav, optionally ?m=12.3,45.0 (marks in seconds) and &memo=1 (note to self)
         val path = channel.path
         val name = path.substringBefore('?').substringAfterLast('/')
         // Only accept the watch's own file names (no paths, nothing unexpected)
@@ -45,7 +57,9 @@ class ChunkReceiverService : WearableListenerService() {
             Wearable.getChannelClient(this).close(channel)
             return
         }
-        val marks = path.substringAfter("?m=", "").split(',').mapNotNull { it.trim().toDoubleOrNull() }
+        val query = query(path)
+        val marks = query["m"].orEmpty().split(',').mapNotNull { it.trim().toDoubleOrNull() }
+        val memo = query["memo"] == "1"
         val client = Wearable.getChannelClient(this)
         val dir = RecordingStore.chunkDir(this)
         val part = File(dir, "$name.part")
@@ -86,6 +100,7 @@ class ChunkReceiverService : WearableListenerService() {
             cleanPart.renameTo(File(dir, name))
             RecordingStore.refresh(this)
             if (marks.isNotEmpty()) RecordingStore.setMarks(this, name, marks)
+            if (memo) RecordingStore.setMemo(this, name)
             PlaceTagger.tag(this, name)
             ProcessWorker.schedule(this)
         } catch (t: Throwable) {

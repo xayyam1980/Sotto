@@ -63,6 +63,7 @@ dependencies {
     implementation("androidx.wear.tiles:tiles:1.4.1")
     implementation("androidx.wear.protolayout:protolayout:1.2.1")
     implementation("androidx.wear.protolayout:protolayout-material:1.2.1")
+    implementation("androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1")
     implementation("com.google.guava:guava:33.3.1-android")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
 }

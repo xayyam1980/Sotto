@@ -54,7 +54,13 @@ The watch records when people talk. The phone turns each recording into a transc
 <h2>What it does</h2>
 <p><strong>On the watch</strong>
 - Listens all day but <strong>saves only speech</strong>; silence is skipped.
-- <strong>Tile</strong> on the watch face shows live status and recording time. It also has <strong>Pause</strong> (15 min, 1 h or until resumed), <strong>Mark</strong> (bookmark an important moment) and <strong>Sync</strong>.
+- <strong>Tile</strong> shows live status, recording time and an estimate of the battery left (for example "~9 h battery"). Its buttons:
+  - <strong>Pause</strong>: 15 min, 1 h or until resumed.
+  - <strong>Mark</strong>: bookmarks an important moment.
+  - <strong>Note to self</strong>: a short memo that arrives on the phone as a to-do.
+  - <strong>Forget</strong>: deletes the last 5 min, 15 min or hour, on the watch and the phone.
+- <strong>Watch-face complication</strong> shows Live / Paused / Off and today's minutes. Tap it to open Sotto.
+- <strong>Battery saver</strong>: below 20 % Sotto skips the extra audio effects and syncs every 30 minutes instead of after every note.
 - Sends recordings to the phone over a <strong>direct Bluetooth/Wi-Fi link only</strong>.
 - Keeps recordings safely on the watch until the phone confirms it received them.</p>
 <p><strong>Transcripts and speakers</strong> (on the phone)
@@ -126,7 +132,8 @@ The watch records when people talk. The phone turns each recording into a transc
    adb connect &lt;watch-ip&gt;:&lt;port&gt;
    adb install Sotto-watch-1.3.apk</code>
 4. Open <strong>Sotto</strong> on the watch, tap <strong>Start</strong> and allow the microphone and notifications.
-5. Add the tile: swipe left on the watch face → <strong>+</strong> → <strong>Sotto</strong>.</p>
+5. Add the tile: swipe left on the watch face → <strong>+</strong> → <strong>Sotto</strong>.
+6. Optional: add the complication. Long-press the watch face → <strong>Edit</strong> → <strong>Complications</strong> → pick a slot → <strong>Sotto</strong>.</p>
 <h3>Updating (keeps your notes and AI models)</h3>
 <p>Install the new APK <strong>over the old one; don't uninstall first</strong>. Android keeps all notes and the downloaded models, because every Sotto release is signed with the same key.</p>
 <p>If you do uninstall, Android asks <strong>"Keep app data?"</strong>. Tick it, and the notes and models are still there when you install Sotto again.</p>
@@ -157,6 +164,14 @@ The watch records when people talk. The phone turns each recording into a transc
 <tr>
 <td>Remember an important moment</td>
 <td>Tile → <strong>🔖 Mark</strong> (highlighted in the transcript)</td>
+</tr>
+<tr>
+<td>Remind myself of something</td>
+<td>Tile → <strong>☑ Note to self</strong>, say it, tap <strong>Done</strong>. It arrives on the phone as a note titled "To-do: …"</td>
+</tr>
+<tr>
+<td>Take back something just said</td>
+<td>Tile → <strong>Forget last…</strong> → 5 min / 15 min / 1 hour. The audio is deleted from the watch and the phone</td>
 </tr>
 <tr>
 <td>Get the latest notes on the phone now</td>
@@ -275,6 +290,10 @@ The watch records when people talk. The phone turns each recording into a transc
 <tr>
 <td>Models download again after reinstalling</td>
 <td>Install updates over the old app instead of uninstalling (see <em>Updating</em>).</td>
+</tr>
+<tr>
+<td>Tile shows "Battery saver"</td>
+<td>The watch is below 20 %. Sotto keeps listening but syncs every 30 minutes. Charge the watch to return to normal.</td>
 </tr>
 <tr>
 <td>Lots of "Unknown place"</td>

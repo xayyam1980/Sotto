@@ -24,11 +24,19 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
 
     val isOpen get() = raf != null
     val secondsWritten get() = dataBytes / (sampleRate * 2.0)
+    /** Epoch millis when the open chunk started. */
+    var openedAt = 0L
+        private set
 
     fun open() {
         if (isOpen) return
         dir.mkdirs()
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        // the name is the start time; step a second on if a chunk already has it
+        var t = System.currentTimeMillis()
+        val fmt = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+        while (File(dir, "chunk_${fmt.format(Date(t))}.wav").exists() || File(dir, "chunk_${fmt.format(Date(t))}.wav.part").exists()) t += 1000
+        val stamp = fmt.format(Date(t))
+        openedAt = t
         val f = File(dir, "chunk_$stamp.wav.part")
         raf = RandomAccessFile(f, "rw").apply {
             setLength(0)
@@ -54,6 +62,25 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
             dataBytes += n * 2
             i += n
         }
+    }
+
+    /** Drops the open chunk without saving anything. */
+    fun discard() {
+        val r = raf ?: return
+        raf = null
+        r.close()
+        partFile?.delete()
+        partFile = null
+        dataBytes = 0
+    }
+
+    /** Cuts the open chunk so only its first [seconds] are kept. */
+    fun truncate(seconds: Double) {
+        val r = raf ?: return
+        val keep = ((seconds * sampleRate).toLong() * 2).coerceIn(0, dataBytes)
+        dataBytes = keep
+        r.setLength(44 + keep)
+        r.seek(44 + keep)
     }
 
     /** Finalizes the file and returns it. Chunks shorter than [minSeconds] are discarded (returns null). */
@@ -117,12 +144,43 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
         return if (x < 0) -y else y
     }
 
-    private companion object {
-        const val TARGET = 20000.0 // ~ -4 dBFS for the loud parts of speech
-        const val MAX_GAIN = 12.0  // cap so silence-heavy chunks don't blow up hiss
+    companion object {
+        private const val TARGET = 20000.0 // ~ -4 dBFS for the loud parts of speech
+        private const val MAX_GAIN = 12.0  // cap so silence-heavy chunks don't blow up hiss
+
+        private fun rateOf(r: RandomAccessFile): Int {
+            r.seek(24)
+            val b = ByteArray(4).also { r.readFully(it) }
+            return (b[0].toInt() and 0xFF) or ((b[1].toInt() and 0xFF) shl 8) or ((b[2].toInt() and 0xFF) shl 16) or ((b[3].toInt() and 0xFF) shl 24)
+        }
+
+        /** Length of a finished chunk in seconds. */
+        fun seconds(f: File): Double {
+            if (f.length() <= 44) return 0.0
+            return RandomAccessFile(f, "r").use { r ->
+                val rate = rateOf(r).takeIf { it > 0 } ?: return 0.0
+                (f.length() - 44) / (rate * 2.0)
+            }
+        }
+
+        /** Cuts a finished chunk so only its first [seconds] stay. */
+        fun trimFile(f: File, seconds: Double) {
+            RandomAccessFile(f, "rw").use { r ->
+                val rate = rateOf(r).takeIf { it > 0 } ?: return
+                val keep = ((seconds * rate).toLong() * 2).coerceIn(0, f.length() - 44)
+                r.setLength(44 + keep)
+                r.seek(0)
+                r.write(header(rate, keep))
+            }
+        }
+
+        fun header(sampleRate: Int, dataLen: Long): ByteArray = buildHeader(sampleRate, dataLen)
     }
 
-    private fun header(dataLen: Long): ByteArray {
+    private fun header(dataLen: Long) = buildHeader(sampleRate, dataLen)
+}
+
+private fun buildHeader(sampleRate: Int, dataLen: Long): ByteArray {
         val byteRate = sampleRate * 2
         fun le32(v: Long) = byteArrayOf(
             (v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte(),
@@ -132,5 +190,4 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
             "fmt ".toByteArray() + le32(16) + le16(1) + le16(1) +
             le32(sampleRate.toLong()) + le32(byteRate.toLong()) + le16(2) + le16(16) +
             "data".toByteArray() + le32(dataLen)
-    }
 }

@@ -24,6 +24,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Foreground service that listens continuously and saves only speech.
@@ -33,6 +34,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *  - Pause releases the mic completely but keeps the service alive, so it can
  *    resume on its own (Android won't let a background app reopen the mic)
  *  - Mark bookmarks the current second of the open chunk
+ *  - Forget drops what was recorded in the last minutes (here and on the phone)
+ *  - a Note to self borrows the mic for a moment (holdMic)
+ *  - below 20 % battery it runs light: no extra audio effects, fewer syncs
  */
 class RecorderService : Service() {
 
@@ -71,8 +75,32 @@ class RecorderService : Service() {
         @Volatile var marksInChunk = 0
             private set
 
+        /** True while the battery is low and listening runs light. */
+        @Volatile var lightMode = false
+            private set
+        /** True while the capture loop has the microphone open. */
+        @Volatile var micOpen = false
+            private set
+        /** A Note to self is using the mic: capture steps aside without counting as a pause. */
+        @Volatile var holdMic = false
+            private set
+
         private val markRequests = AtomicInteger(0)
         private val flushRequests = AtomicInteger(0)
+        private val forgetCutoff = AtomicLong(0)
+
+        fun hold(on: Boolean) { holdMic = on }
+
+        /**
+         * Forgets everything recorded in the last [minutes]: the open chunk is cut or dropped,
+         * saved chunks are cut or deleted, and the phone is told to do the same with what it already has.
+         */
+        fun forget(ctx: Context, minutes: Int) {
+            val now = System.currentTimeMillis()
+            val cutoff = now - minutes * 60_000L
+            if (isRunning) forgetCutoff.set(cutoff)
+            ChunkSync.forget(ctx, cutoff, now)
+        }
 
         /** Phone asked for everything now: close the open chunk (if any) so it can be sent. */
         fun flush(ctx: Context) {
@@ -125,10 +153,12 @@ class RecorderService : Service() {
             } catch (t: Throwable) {
                 Log.w(TAG, "Tile update failed", t)
             }
+            SottoComplicationService.update(ctx)
         }
     }
 
     @Volatile private var running = false
+    @Volatile private var lastSyncAt = 0L
     private var worker: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val clock = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -169,8 +199,14 @@ class RecorderService : Service() {
 
     /** Alternates between capturing and paused until the service stops. */
     private fun workerLoop() {
-        var lastSyncAt = System.currentTimeMillis()
+        lastSyncAt = System.currentTimeMillis()
+        var lastBatteryAt = 0L
         while (running) {
+            if (System.currentTimeMillis() - lastBatteryAt > 60_000) {
+                lastBatteryAt = System.currentTimeMillis()
+                Battery.record(this)
+            }
+            if (holdMic) { Thread.sleep(200); continue }
             val until = pausedUntil
             if (until != 0L) {
                 if (until != UNTIL_RESUME && System.currentTimeMillis() >= until) {
@@ -182,14 +218,20 @@ class RecorderService : Service() {
                 continue
             }
             captureSession()
-            if (System.currentTimeMillis() - lastSyncAt > 600_000) {
-                lastSyncAt = System.currentTimeMillis()
-                ChunkSync.requestSync(this)
-            }
+            maybeSync()
         }
     }
 
-    /** Captures until paused, stopped, or the mic fails. */
+    /** Regular sync for anything left waiting: every 10 min, every 30 min on low battery. */
+    private fun maybeSync() {
+        val every = if (lightMode) 1_800_000L else 600_000L
+        if (System.currentTimeMillis() - lastSyncAt > every) {
+            lastSyncAt = System.currentTimeMillis()
+            ChunkSync.requestSync(this)
+        }
+    }
+
+    /** Captures until paused, stopped, held for a memo, the battery mode changes, or the mic fails. */
     @SuppressLint("MissingPermission") // checked before starting
     private fun captureSession() {
         val minBuf = AudioRecord.getMinBufferSize(
@@ -206,11 +248,14 @@ class RecorderService : Service() {
             recorder.release(); micBusy(); return
         }
 
+        val light = Battery.light(this)
+        if (light != lightMode) { lightMode = light; updateTile(this) }
         val effects = mutableListOf<android.media.audiofx.AudioEffect>()
-        if (NoiseSuppressor.isAvailable()) {
+        // Light mode skips the extra effects: the phone cleans the audio anyway
+        if (!light && NoiseSuppressor.isAvailable()) {
             NoiseSuppressor.create(recorder.audioSessionId)?.let { it.enabled = true; effects += it }
         }
-        if (AutomaticGainControl.isAvailable()) {
+        if (!light && AutomaticGainControl.isAvailable()) {
             AutomaticGainControl.create(recorder.audioSessionId)?.let { it.enabled = true; effects += it }
         }
 
@@ -223,12 +268,14 @@ class RecorderService : Service() {
         var lastSpeechAt = 0L
         var lastLogAt = 0L
         var lastTileAt = 0L
+        var lastCheckAt = System.currentTimeMillis()
 
         recorder.startRecording()
+        micOpen = true
         if (lastError != null) { lastError = null; updateTile(this) }
         Log.i(TAG, "Capture started")
         try {
-            while (running && pausedUntil == 0L) {
+            while (running && pausedUntil == 0L && !holdMic) {
                 val frame = ShortArray(FRAME_SAMPLES)
                 val n = recorder.read(frame, 0, FRAME_SAMPLES)
                 if (n < 0) { micBusy(); break }
@@ -245,6 +292,22 @@ class RecorderService : Service() {
                 // Marks: at the current second of an open chunk, else at the start of the next one
                 if (flushRequests.getAndSet(0) > 0) {
                     if (writer.isOpen) closeChunk(writer, marks) else ChunkSync.requestSync(this)
+                }
+                val cut = forgetCutoff.getAndSet(0)
+                if (cut > 0) {
+                    preroll.clear()
+                    if (writer.isOpen) {
+                        val keep = (cut - writer.openedAt) / 1000.0
+                        if (keep < Forget.MIN_KEEP) {
+                            writer.discard()
+                            marks.clear(); marksInChunk = 0; chunkSeconds = 0.0; markAtStart = false
+                            updateTile(this)
+                        } else {
+                            writer.truncate(keep)
+                            marks.removeAll { it > keep }
+                            closeChunk(writer, marks)
+                        }
+                    }
                 }
                 val m = markRequests.getAndSet(0)
                 if (m > 0) {
@@ -273,7 +336,13 @@ class RecorderService : Service() {
                 if (writer.isOpen && writer.secondsWritten >= MAX_CHUNK_SEC) closeChunk(writer, marks)
                 chunkSeconds = if (writer.isOpen) writer.secondsWritten else 0.0
 
-                if (writer.isOpen && now - lastTileAt > 60_000) { lastTileAt = now; updateTile(this) }
+                if (writer.isOpen && now - lastTileAt > (if (light) 180_000 else 60_000)) { lastTileAt = now; updateTile(this) }
+                if (now - lastCheckAt > 60_000) {
+                    lastCheckAt = now
+                    Battery.record(this)
+                    maybeSync()
+                    if (Battery.light(this) != light) break // restart the mic with the other settings
+                }
                 if (now - lastLogAt > 5_000) {
                     lastLogAt = now
                     Log.i(TAG, "rms=%.0f floor=%.0f speech=%b chunk=%.1fs".format(level, noiseFloor, speech, chunkSeconds))
@@ -289,6 +358,7 @@ class RecorderService : Service() {
             effects.forEach { try { it.release() } catch (_: Throwable) {} }
             try { recorder.stop() } catch (_: Throwable) {}
             recorder.release()
+            micOpen = false
         }
     }
 
@@ -296,7 +366,7 @@ class RecorderService : Service() {
         lastError = "Mic busy · will retry"
         updateTile(this)
         Log.w(TAG, "Mic unavailable, retrying in 10 s")
-        repeat(20) { if (running && pausedUntil == 0L) Thread.sleep(500) }
+        repeat(20) { if (running && pausedUntil == 0L && !holdMic) Thread.sleep(500) }
     }
 
     private fun closeChunk(writer: WavChunkWriter, marks: MutableList<Double>) {
@@ -313,7 +383,8 @@ class RecorderService : Service() {
         marksInChunk = 0
         chunkSeconds = 0.0
         updateTile(this)
-        ChunkSync.requestSync(this)
+        // On low battery chunks wait for the next regular sync (every 30 min) instead of going one by one
+        if (!lightMode) ChunkSync.requestSync(this)
     }
 
     override fun onDestroy() {
@@ -346,7 +417,7 @@ class RecorderService : Service() {
             this, 1, Intent(this, RecorderService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE)
         val text = when (val u = pausedUntil) {
-            0L -> "Listening (speech only)"
+            0L -> if (lightMode) "Listening · battery saver" else "Listening (speech only)"
             UNTIL_RESUME -> "Paused until you resume"
             else -> "Paused until ${clock.format(Date(u))}"
         }

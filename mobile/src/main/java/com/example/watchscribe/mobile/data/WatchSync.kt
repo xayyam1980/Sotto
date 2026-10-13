@@ -19,6 +19,8 @@ data class WatchStatus(
     val todaySec: Int,
     val todayNotes: Int,
     val battery: Int,
+    val batteryHours: Double = -1.0, // estimate at the current drain, -1 = not known yet
+    val light: Boolean = false,      // watch is in battery saver
     val freeMb: Long,
     val sync: String,
     val error: String,
@@ -87,6 +89,8 @@ object WatchSync {
             todaySec = o.optInt("todaySec"),
             todayNotes = o.optInt("todayNotes"),
             battery = o.optInt("battery", -1),
+            batteryHours = o.optDouble("batteryHours", -1.0),
+            light = o.optBoolean("light", false),
             freeMb = o.optLong("freeMb"),
             sync = o.optString("sync"),
             error = o.optString("error"),

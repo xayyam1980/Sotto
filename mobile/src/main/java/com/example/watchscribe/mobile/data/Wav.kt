@@ -20,6 +20,20 @@ object Wav {
         return b.array()
     }
 
+    /** Cuts a WAV file so only its first [seconds] stay (header updated). */
+    fun trim(f: File, seconds: Double) {
+        if (!f.exists() || f.length() < 44) return
+        RandomAccessFile(f, "rw").use { r ->
+            val h = ByteArray(44).also { r.readFully(it) }
+            val rate = ByteBuffer.wrap(h).order(ByteOrder.LITTLE_ENDIAN).getInt(24)
+            if (rate <= 0) return
+            val keep = ((seconds * rate).toLong() * 2).coerceIn(0, f.length() - 44)
+            r.setLength(44 + keep)
+            r.seek(0)
+            r.write(header(rate, keep))
+        }
+    }
+
     /** Duration in seconds, from the header's byte rate. */
     fun seconds(f: File): Double {
         if (!f.exists() || f.length() < 44) return 0.0

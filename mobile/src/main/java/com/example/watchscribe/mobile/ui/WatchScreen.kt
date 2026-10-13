@@ -1,5 +1,6 @@
 package com.example.watchscribe.mobile.ui
 
+import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -109,7 +110,15 @@ fun WatchScreen(bottomNav: @Composable () -> Unit) {
                     Text(name ?: "Galaxy Watch", fontSize = 14.sp, color = Palette.Muted, modifier = Modifier.weight(1f))
                     if (s != null && s.battery >= 0) {
                         Icon(Icons.Rounded.BatteryStd, null, Modifier.size(16.dp), tint = if (s.battery <= 15) Palette.Danger else Palette.Muted)
-                        Text("${s.battery}%", fontSize = 13.sp, color = Palette.Muted)
+                        Text(
+                            "${s.battery}%" + when {
+                                s.light -> " · battery saver"
+                                s.batteryHours >= 1 -> " · ~${s.batteryHours.roundToInt()} h left"
+                                s.batteryHours >= 0 -> " · <1 h left"
+                                else -> ""
+                            },
+                            fontSize = 13.sp, color = Palette.Muted,
+                        )
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
