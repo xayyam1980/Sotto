@@ -146,7 +146,7 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         val segs = mutableListOf<Seg>()
         val langTime = HashMap<String, Int>()
         pieces.forEachIndexed { i, p ->
-            val piece = x.copyOfRange(p.a, p.b)
+            val piece = normalize(x.copyOfRange(p.a, p.b))
             val main = langTime.maxByOrNull { it.value }?.key
             var text: String; var lang: String
             if (engine == ModelId.PARAKEET) {
@@ -244,21 +244,38 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         val fallback = allowed.firstOrNull() ?: "en"
         val total = x.size / 16_000.0
 
-        // 1) Words with times. Long pieces (15-30 s, cut in pauses) give Parakeet more context.
+        // 1) Where people speak
+        val regions = speechRegions(x)
+        onProgress(0.1f)
+
+        // 2) Words with times. Long pieces (15-30 s, cut in pauses) give Parakeet more context;
+        //    quiet audio is made louder first. If Parakeet clearly struggles (far, quiet or mixed-up
+        //    speech: very few words for the speech heard, or two alphabets at once), Whisper redoes the piece.
         val words = mutableListOf<Word>()
         val langTime = HashMap<String, Double>()
         val pieces = segment(x, 15.0, 30.0)
+        val whisperReady = Models.isReady(ctx, ModelId.WHISPER)
         pieces.forEachIndexed { i, (a, b) ->
-            val (w, text) = parakeetWords(x.copyOfRange(a, b), a / 16_000.0)
+            val sa = a / 16_000.0; val sb = b / 16_000.0
+            val audio = normalize(x.copyOfRange(a, b))
+            var (w, text) = parakeetWords(audio, sa)
+            val spans = regions.mapNotNull { r -> val s0 = max(r[0], sa); val s1 = minOf(r[1], sb); if (s1 > s0) doubleArrayOf(s0, s1) else null }
+            val speechSec = spans.sumOf { it[1] - it[0] }
+            if (whisperReady && speechSec >= 3.0 && (w.size / speechSec < 1.3 || mixedScripts(text))) {
+                val (wText, _) = decode(audio, "")
+                if (wText.isNotBlank() && !looksLikeLoop(wText)) {
+                    text = wText
+                    w = spreadWords(wText, spans.ifEmpty { listOf(doubleArrayOf(sa, sb)) })
+                }
+            }
             words += w
             if (text.isNotBlank()) { val l = guessLanguage(text, allowed); langTime[l] = (langTime[l] ?: 0.0) + (b - a) }
-            onProgress(0.05f + (i + 1f) / pieces.size * 0.5f)
+            onProgress(0.1f + (i + 1f) / pieces.size * 0.5f)
         }
         val lang = langTime.maxByOrNull { it.value }?.key ?: fallback
         if (words.isEmpty()) return Result(lang, emptyList(), 0, null)
 
-        // 2) Voice fingerprints of short windows over the speech, grouped into people
-        val regions = speechRegions(x)
+        // 3) Voice fingerprints of short windows over the speech, grouped into people
         onProgress(0.6f)
         val win = 1.5; val hop = 1.0
         val windows = mutableListOf<DoubleArray>()
@@ -281,7 +298,9 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             // Group at most 400 windows (spread over the recording), then give every window its nearest group
             val step = max(1, emb.size / 400)
             val sample = emb.indices.filter { it % step == 0 }
-            val sLab = cluster(sample.map { emb[it] }, DoubleArray(sample.size) { 1.0 }, numSpeakers)
+            // weights in seconds, so a "person" needs a few seconds of speech, not one stray window
+            val sLab = if (emb.size < 4 && numSpeakers <= 0) IntArray(sample.size)
+                       else cluster(sample.map { emb[it] }, DoubleArray(sample.size) { k -> windows[sample[k]].let { it[1] - it[0] } }, numSpeakers)
             val c = sLab.max() + 1
             val centroids = (0 until c).map { g ->
                 val m = FloatArray(emb[0].size)
@@ -290,7 +309,7 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             }
             val lab = IntArray(emb.size) { i -> centroids.indices.maxBy { g -> dot(emb[i], centroids[g]) } }
 
-            // 3) One speaker per sentence: its own fingerprint if long enough, else the windows' vote
+            // 4) One speaker per sentence: its own fingerprint if long enough, else the windows' vote
             val sents = sentencesOf(words)
             val spk = sents.indices.map { k ->
                 if (c == 1) return@map 0
@@ -309,7 +328,7 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             }
             onProgress(0.97f)
 
-            // 4) Lines; number people S1, S2… in order of first appearance
+            // 5) Lines; number people S1, S2… in order of first appearance
             val order = LinkedHashMap<Int, Int>()
             spk.forEach { if (it !in order) order[it] = order.size }
             val lines = linesOf(words, spk.map { order[it]!! }, total)
@@ -318,6 +337,18 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             return Result(lang, lines, order.size, null, voices)
         } finally {
             ext.release()
+        }
+    }
+
+    /** Whisper gives no word times: spread its words evenly over the speech it came from. */
+    private fun spreadWords(text: String, spans: List<DoubleArray>): List<Word> {
+        val parts = text.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val total = spans.sumOf { it[1] - it[0] }
+        return parts.mapIndexed { i, p ->
+            var pos = total * i / parts.size
+            var t = spans.first()[0]
+            for (s in spans) { val len = s[1] - s[0]; if (pos <= len) { t = s[0] + pos; break }; pos -= len }
+            Word(t, p)
         }
     }
 
@@ -669,6 +700,23 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             val e = FloatArray(n) { k -> var s = 0.0; for (i in k * f until (k + 1) * f) s += x[i] * x[i]; sqrt(s / f).toFloat() }
             val floor = e.sortedArray()[(n * 0.15).toInt().coerceAtMost(n - 1)].coerceAtLeast(1e-4f)
             return BooleanArray(n) { e[it] >= floor * 2.5f }
+        }
+
+        /** Makes quiet recordings louder (peak to 90 %, at most 10x); loud ones stay as they are. */
+        fun normalize(x: FloatArray): FloatArray {
+            var peak = 0f
+            for (v in x) { val a = kotlin.math.abs(v); if (a > peak) peak = a }
+            if (peak <= 0f || peak >= 0.5f) return x
+            val g = minOf(10f, 0.9f / peak)
+            return FloatArray(x.size) { x[it] * g }
+        }
+
+        /** True when a line mixes Latin and Cyrillic words, a sign the model was unsure of the language. */
+        fun mixedScripts(text: String): Boolean {
+            val words = text.split(Regex("\\s+"))
+            val latin = words.count { w -> w.any { it in 'a'..'z' || it in 'A'..'Z' } }
+            val cyr = words.count { w -> w.any { it in '\u0400'..'\u04FF' } }
+            return latin >= 2 && cyr >= 2
         }
 
         /** Names the language of a transcribed line from its letters, among the user's languages. */

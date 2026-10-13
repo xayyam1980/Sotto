@@ -217,4 +217,14 @@ class SottoLogicTest {
         assertEquals("Meeting 2026-10-13 14:30, budget 1 000 000 zł", r("Meeting 2026-10-13 14:30, budget 1 000 000 zł"))
         assertEquals("13.10.2026 15:00, 12 people", r("13.10.2026 15:00, 12 people"))
     }
+
+    @Test fun quietAudioAndConfusedLanguage() {
+        val quiet = FloatArray(1000) { if (it == 10) 0.09f else 0.01f }
+        assertEquals(0.9f, Transcriber.normalize(quiet).max(), 1e-4f)
+        val loud = FloatArray(10) { 0.8f }
+        assertTrue(Transcriber.normalize(loud) === loud) // loud audio untouched
+        assertTrue(Transcriber.mixedScripts("Y la pista dragona. Моя одежда."))
+        assertFalse(Transcriber.mixedScripts("Моя одежда отразит огонь."))
+        assertFalse(Transcriber.mixedScripts("We use Jira and Confluence."))
+    }
 }
