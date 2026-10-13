@@ -91,7 +91,12 @@ object Models {
     fun gemma(ctx: Context, m: ModelId) = File(dir(ctx), m.fileName).path
 
     /** Models needed for transcription with speaker labels, with the speech model chosen in Settings. */
-    fun transcription(ctx: Context) = listOf(AiSettings.asrModel(ctx), ModelId.SPEECH, ModelId.VOICES_EN)
+    fun transcription(ctx: Context): List<ModelId> {
+        val asr = AiSettings.asrModel(ctx)
+        // With Parakeet, Russian and Ukrainian are handed to Whisper, which hears them better on watch audio
+        val helper = if (asr == ModelId.PARAKEET && AiSettings.languages(ctx).any { it == "ru" || it == "uk" }) listOf(ModelId.WHISPER) else emptyList()
+        return listOf(asr) + helper + listOf(ModelId.SPEECH, ModelId.VOICES_EN)
+    }
 
     fun download(ctx: Context, m: ModelId) {
         if (isReady(ctx, m) || prefs(ctx).getLong(m.name, -1L) >= 0) return

@@ -102,7 +102,7 @@ If you do uninstall, Android asks **"Keep app data?"**. Tick it, and the notes a
 
 ### 3. One-time AI setup (on the phone, Wi-Fi)
 On the **Notes** screen, the **AI card** shows **Download**. It fetches the models once, about 3.1 GB:
-- **Parakeet v3** for transcription: fast and accurate for English, Polish, Russian, Ukrainian, German, French and 19 more European languages. For other languages (such as Azerbaijani or Turkish), choose **Whisper turbo** in Settings.
+- **Parakeet v3** for transcription: fast and accurate for English, Polish, Russian, Ukrainian, German, French and 19 more European languages. For other languages (such as Azerbaijani or Turkish), choose **Whisper turbo** in Settings. Russian and Ukrainian are handed to Whisper automatically when it is downloaded, because it hears them better on watch audio.
 - **Speech detection** ([pyannote](https://github.com/pyannote/pyannote-audio) 3.0) and **voice fingerprints** ([3D-Speaker](https://github.com/modelscope/3D-Speaker) ERes2Net) to tell who is speaking
 - **Gemma 4 E2B** for summaries and Ask; **E4B** in Settings is slower but better
 

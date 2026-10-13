@@ -250,7 +250,8 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
 
         // 2) Words with times. Long pieces (15-30 s, cut in pauses) give Parakeet more context;
         //    quiet audio is made louder first. If Parakeet clearly struggles (far, quiet or mixed-up
-        //    speech: very few words for the speech heard, or two alphabets at once), Whisper redoes the piece.
+        //    speech: very few words for the speech heard, or two alphabets at once) or hears Russian or
+        //    Ukrainian, Whisper redoes the piece (when downloaded).
         val words = mutableListOf<Word>()
         val langTime = HashMap<String, Double>()
         val pieces = segment(x, 15.0, 30.0)
@@ -261,7 +262,9 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             var (w, text) = parakeetWords(audio, sa)
             val spans = regions.mapNotNull { r -> val s0 = max(r[0], sa); val s1 = minOf(r[1], sb); if (s1 > s0) doubleArrayOf(s0, s1) else null }
             val speechSec = spans.sumOf { it[1] - it[0] }
-            if (whisperReady && speechSec >= 3.0 && (w.size / speechSec < 1.3 || mixedScripts(text))) {
+            // Russian/Ukrainian: Whisper turbo is clearly better on watch audio, so it takes over when downloaded
+            val cyrillic = text.any { it in '\u0400'..'\u04FF' }
+            if (whisperReady && speechSec >= 2.0 && (w.size / speechSec < 1.3 || mixedScripts(text) || cyrillic)) {
                 val (wText, _) = decode(audio, "")
                 if (wText.isNotBlank() && !looksLikeLoop(wText)) {
                     text = wText
@@ -619,13 +622,13 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             val bestC = (2..maxC).maxBy { silhouette(levels[it]!!) }
             if (cross / cw > SAME_PERSON || silhouette(levels[bestC]!!) < MIN_SILHOUETTE) return IntArray(n)
 
-            // Fold groups with under max(2 s, 5%) of the speech into the most similar bigger group
+            // Fold groups with under max(3 s, 7%) of the speech into the most similar bigger group
             val lab = levels[bestC]!!.copyOf()
             val total = w.sum()
             while (true) {
                 val dur = HashMap<Int, Double>(); lab.forEachIndexed { i, g -> dur[g] = (dur[g] ?: 0.0) + w[i] }
                 if (dur.size <= 1) break
-                val small = dur.filter { it.value < max(2.0, 0.05 * total) }.minByOrNull { it.value }?.key ?: break
+                val small = dur.filter { it.value < max(3.0, 0.07 * total) }.minByOrNull { it.value }?.key ?: break
                 val members = (0 until n).filter { lab[it] == small }
                 val target = dur.keys.filter { it != small }.maxBy { g -> link(members, (0 until n).filter { lab[it] == g }) }
                 members.forEach { lab[it] = target }
