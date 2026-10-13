@@ -1,0 +1,17 @@
+# Signing secrets: never publish these
+*.jks
+*.keystore
+keystore.properties
+local.properties
+
+# Build output
+.gradle/
+.kotlin/
+build/
+*/build/
+release/
+_to_delete/
+captures/
+.idea/
+*.iml
+.DS_Store

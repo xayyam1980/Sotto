@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lets the watch find this phone app -->
+    <string-array name="android_wear_capabilities">
+        <item>watchscribe_receiver</item>
+    </string-array>
+</resources>

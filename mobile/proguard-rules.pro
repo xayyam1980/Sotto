@@ -1,0 +1,14 @@
+# Native (JNI) libraries look up these classes by name: keep them intact.
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keep class org.maplibre.** { *; }
+-keep class com.mapbox.** { *; }
+-keepclasseswithmembernames class * { native <methods>; }
+-dontwarn com.google.ai.edge.**
+-dontwarn org.maplibre.**
+-dontwarn com.k2fsa.**
+-dontwarn org.tukaani.xz.**
+-dontwarn org.brotli.dec.**
+-dontwarn com.github.luben.zstd.**
+-dontwarn org.objectweb.asm.**
+-dontwarn org.apache.commons.compress.**
