@@ -44,7 +44,7 @@ import java.time.Instant
 class RecorderTileService : TileService() {
 
     private companion object {
-        const val RES = "3"
+        const val RES = "4"
         const val ID_MARK = "mark"
         const val ID_RESUME = "resume"
         const val ID_EXTEND = "extend"
@@ -168,8 +168,10 @@ class RecorderTileService : TileService() {
             .setContent(column(
                 text("● Capturing", Typography.TYPOGRAPHY_TITLE2, LIVE),
                 dynamicText(staticClock, clock, "00:00", if (marks > 0) " · $marks marked" else ""),
-                spacer(8f),
-                row(pauseButton(), spacerW(8f), markButton(marks > 0), spacerW(8f), forgetButton()),
+                spacer(6f),
+                row(pauseButton(), spacerW(8f), markButton(marks > 0), spacerW(8f), memoButton()),
+                spacer(6f),
+                forgetChip(device),
             ))
             .build()
     }
