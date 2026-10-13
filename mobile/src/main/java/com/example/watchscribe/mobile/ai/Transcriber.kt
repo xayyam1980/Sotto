@@ -141,7 +141,7 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
                 // Deliberately fine-grained: we only use its turn boundaries and regroup below
                 clustering = FastClusteringConfig(numClusters = -1, threshold = 0.5f),
                 minDurationOn = 0.3f,
-                minDurationOff = 0.5f,
+                minDurationOff = 0.2f, // keep short pauses: that is where people take turns
             ),
         )
         val raw = try { sd.process(x) } finally { sd.release() }
@@ -154,28 +154,66 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         val long = turns.filter { it.b - it.a >= minLen }.sortedByDescending { it.b - it.a }.take(300)
         if (long.isEmpty()) { turns.forEach { it.spk = 0 }; return turns }
         val ext = SpeakerEmbeddingExtractor(config = SpeakerEmbeddingExtractorConfig(model = Models.voiceEmbedding(ctx), numThreads = threads))
-        val emb = try {
-            long.map { t ->
+        try {
+            val emb = long.map { t ->
                 val len = min(t.b - t.a, 10 * 16_000) // middle 10 s at most
                 val a = t.a + (t.b - t.a - len) / 2
-                val st = ext.createStream()
-                try {
-                    st.acceptWaveform(x.copyOfRange(a, a + len), 16_000)
-                    st.inputFinished()
-                    ext.compute(st)
-                } finally { st.release() }
+                embed(ext, x, a, a + len)
             }
-        } finally { ext.release() }
-        val labels = cluster(emb, DoubleArray(long.size) { (long[it].b - long[it].a) / 16_000.0 }, numSpeakers)
-        long.forEachIndexed { i, t -> t.spk = labels[i] }
+            val labels = cluster(emb, DoubleArray(long.size) { (long[it].b - long[it].a) / 16_000.0 }, numSpeakers)
+            long.forEachIndexed { i, t -> t.spk = labels[i] }
 
-        // Short turns: same label as the long turns pyannote grouped them with, else the nearest long turn
-        val byRaw = long.groupBy { it.raw }.mapValues { (_, l) -> l.groupBy { it.spk }.maxBy { (_, v) -> v.sumOf { it.b - it.a } }.key }
-        val longSorted = long.sortedBy { it.a }
-        turns.filter { it.b - it.a < minLen }.forEach { t ->
-            t.spk = byRaw[t.raw] ?: longSorted.minBy { l -> abs((l.a + l.b) / 2 - (t.a + t.b) / 2) }.spk
+            // Other turns (short ones): same label as the long turns pyannote grouped them with, else the nearest long turn
+            val byRaw = long.groupBy { it.raw }.mapValues { (_, l) -> l.groupBy { it.spk }.maxBy { (_, v) -> v.sumOf { it.b - it.a } }.key }
+            val longSorted = long.sortedBy { it.a }
+            val fingerprinted = long.toHashSet()
+            turns.filter { it !in fingerprinted }.forEach { t ->
+                t.spk = byRaw[t.raw] ?: longSorted.minBy { l -> abs((l.a + l.b) / 2 - (t.a + t.b) / 2) }.spk
+            }
+
+            // A "turn" can still hold two people when they answer each other quickly.
+            // Listen through every longer turn in short windows and cut it where the voice changes.
+            val c = labels.max() + 1
+            if (c < 2) return turns
+            val centroids = (0 until c).map { g ->
+                val dim = emb[0].size
+                val m = FloatArray(dim)
+                emb.forEachIndexed { i, e -> if (labels[i] == g) { val u = unit(e); val wt = (long[i].b - long[i].a).toFloat(); for (d in 0 until dim) m[d] += u[d] * wt } }
+                unit(m)
+            }
+            return splitAtVoiceChanges(turns, x, ext, centroids)
+        } finally { ext.release() }
+    }
+
+    private fun embed(ext: SpeakerEmbeddingExtractor, x: FloatArray, a: Int, b: Int): FloatArray {
+        val st = ext.createStream()
+        try {
+            st.acceptWaveform(x.copyOfRange(a, b), 16_000)
+            st.inputFinished()
+            return ext.compute(st)
+        } finally { st.release() }
+    }
+
+    /** Cuts turns of 3 s or more where 1.5 s windows (every 0.75 s) sound like a different person. */
+    private fun splitAtVoiceChanges(turns: List<Turn>, x: FloatArray, ext: SpeakerEmbeddingExtractor, centroids: List<FloatArray>): List<Turn> {
+        val win = 24_000; val hop = 12_000
+        val out = mutableListOf<Turn>()
+        for (t in turns.sortedBy { it.a }) {
+            if (t.b - t.a < 3 * 16_000) { out += t; continue }
+            val starts = generateSequence(t.a) { it + hop }.takeWhile { it + win <= t.b }.toList()
+            val raw = IntArray(starts.size) { i ->
+                val u = unit(embed(ext, x, starts[i], starts[i] + win))
+                centroids.indices.maxBy { k -> dot(u, centroids[k]) }
+            }
+            val lab = smoothLabels(raw)
+            var from = t.a; var cur = lab[0]
+            for (i in 1 until lab.size) if (lab[i] != cur) {
+                val cut = (starts[i - 1] + starts[i]) / 2 + win / 2
+                out += Turn(from, cut, t.raw, cur); from = cut; cur = lab[i]
+            }
+            out += Turn(from, t.b, t.raw, cur)
         }
-        return turns
+        return out
     }
 
     /** Speaker turns -> pieces to transcribe: same-speaker turns joined, long ones split at pauses. */
@@ -193,7 +231,8 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         val out = mutableListOf<Piece>()
         for ((a0, b0, spk) in blocks.map { Triple(it[0], it[1], it[2]) }) {
             val a = max(0, a0 - pad); val b = min(size, b0 + pad)
-            if (b - a < 16_000 * 6 / 10) continue
+            // short replies ("yes", "no") stay as their own line, so they keep their speaker
+            if (b - a < 16_000 * 4 / 10) continue
             if (b - a <= 14 * 16_000) out += Piece(a, b, spk)
             else segment(x.copyOfRange(a, b), keepAll = true).forEach { (pa, pb) -> out += Piece(a + pa, a + pb, spk) }
         }
@@ -213,6 +252,32 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         const val MIN_SILHOUETTE = 0.2
 
         private fun dot(a: FloatArray, b: FloatArray): Double { var s = 0.0; for (i in a.indices) s += a[i] * b[i]; return s }
+        private fun unit(v: FloatArray): FloatArray { val n = sqrt(dot(v, v)).takeIf { it > 0 } ?: 1.0; return FloatArray(v.size) { (v[it] / n).toFloat() } }
+
+        /**
+         * Steadies per-window speaker guesses: a lone window that disagrees with both neighbours
+         * follows them, and any run shorter than [minRun] windows joins the run before it.
+         */
+        fun smoothLabels(lab: IntArray, minRun: Int = 2): IntArray {
+            val out = lab.copyOf()
+            for (i in 1 until out.size - 1) if (lab[i - 1] == lab[i + 1] && lab[i] != lab[i - 1]) out[i] = lab[i - 1]
+            var changed = true
+            while (changed) {
+                changed = false
+                var i = 0
+                while (i < out.size) {
+                    var j = i; while (j + 1 < out.size && out[j + 1] == out[i]) j++
+                    val len = j - i + 1
+                    if (len < minRun && out.size > len) {
+                        val fill = if (i > 0) out[i - 1] else out[j + 1]
+                        for (k in i..j) out[k] = fill
+                        changed = true; break
+                    }
+                    i = j + 1
+                }
+            }
+            return out
+        }
 
         /**
          * Groups voice fingerprints [e] (weights [w] = seconds of speech) into speakers.

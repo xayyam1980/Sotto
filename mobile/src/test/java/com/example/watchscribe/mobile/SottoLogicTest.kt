@@ -149,4 +149,13 @@ class SottoLogicTest {
         assertEquals(1, Transcriber.cluster(e, DoubleArray(e.size) { 1.0 }, 1).max() + 1)
         assertEquals(0, Transcriber.cluster(listOf(e[0]), doubleArrayOf(1.0), -1).single())
     }
+
+    @Test fun speakerChangesInsideATurnAreSteadied() {
+        fun sm(vararg l: Int) = Transcriber.smoothLabels(l).toList()
+        assertEquals(listOf(0, 0, 0, 0, 0), sm(0, 0, 1, 0, 0))          // one odd window is noise
+        assertEquals(listOf(0, 0, 0, 1, 1, 1), sm(0, 0, 0, 1, 1, 1))    // a real change is kept
+        assertEquals(listOf(0, 0, 0, 0), sm(1, 0, 0, 0))
+        assertEquals(listOf(0, 0, 1, 1, 1, 1, 1), sm(0, 0, 1, 1, 0, 1, 1))
+        assertEquals(listOf(2), sm(2))
+    }
 }
