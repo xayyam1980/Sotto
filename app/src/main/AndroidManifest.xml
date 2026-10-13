@@ -91,6 +91,11 @@
                 <data android:path="/status" />
                 <data android:pathPrefix="/cmd/" />
             </intent-filter>
+            <!-- phone app comes in or out of reach -->
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CAPABILITY_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:path="/watchscribe_receiver" />
+            </intent-filter>
         </service>
 
         <service

@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.wearable.CapabilityInfo
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
 
@@ -19,6 +20,12 @@ import com.google.android.gms.wearable.WearableListenerService
  *  /cmd/off       turn Sotto off completely (can then only be started on the watch)
  */
 class SyncRequestService : WearableListenerService() {
+    /** The phone app came back in reach: send what's waiting straight away. */
+    override fun onCapabilityChanged(info: CapabilityInfo) {
+        if (info.nodes.any { it.isNearby }) ChunkSync.requestSync(this)
+        else RecorderService.updateTile(this)
+    }
+
     override fun onMessageReceived(event: MessageEvent) {
         val node = event.sourceNodeId
         var note = ""

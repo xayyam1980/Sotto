@@ -110,10 +110,14 @@ class RecorderTileService : TileService() {
             !RecorderService.isRunning && wantListening -> "Listening stopped" to "Tap to restart"
             RecorderService.lastError != null && RecorderService.isRunning -> RecorderService.lastError!! to "Another app is using the mic"
             freeMb < 200 -> "Storage low" to "$waiting waiting · ${freeMb} MB free"
-            ChunkSync.phoneReachable == false && waiting >= 3 -> "$waiting waiting" to "Phone out of reach. Kept on the watch · ${freeMb / 1000.0} GB free".replace(".0 GB", " GB")
+            // phone away while listening is shown on the normal tile (buttons stay usable)
+            !RecorderService.isRunning && ChunkSync.phoneReachable == false && waiting >= 3 ->
+                "$waiting waiting" to "Phone out of reach. Kept on the watch · ${gb(freeMb)} free"
             else -> null
         }
     }
+
+    private fun gb(mb: Long) = if (mb >= 1000) "%.1f GB".format(mb / 1000.0) else "$mb MB"
 
     private fun listeningLayout(device: DeviceParameters): LayoutElement {
         val (sec, notes) = Stats.today(this)
@@ -121,7 +125,11 @@ class RecorderTileService : TileService() {
         // second line: battery estimate and anything still waiting for the phone
         val info = listOfNotNull(
             Battery.label(this),
-            if (waiting > 0) "$waiting waiting" else null,
+            when {
+                waiting == 0 -> null
+                ChunkSync.phoneReachable == false -> "$waiting waiting · phone away"
+                else -> "$waiting waiting"
+            },
         ).joinToString(" · ").ifEmpty { "✓ All synced" }
         val low = RecorderService.lightMode
         return PrimaryLayout.Builder(device)
@@ -129,7 +137,11 @@ class RecorderTileService : TileService() {
             .setContent(column(
                 text("● Listening", Typography.TYPOGRAPHY_TITLE3, WHITE),
                 text("Today ${Stats.duration(sec)} · $notes ${if (notes == 1) "note" else "notes"}", Typography.TYPOGRAPHY_CAPTION2, MUTED),
-                text(info, Typography.TYPOGRAPHY_CAPTION2, if (low) AMBER else if (waiting == 0) GREEN else MUTED),
+                // tapping the line syncs now
+                LayoutElementBuilders.Box.Builder()
+                    .setModifiers(ModifiersBuilders.Modifiers.Builder().setClickable(load(ID_SYNC)).build())
+                    .addContent(text(info, Typography.TYPOGRAPHY_CAPTION2, if (low) AMBER else if (waiting == 0) GREEN else MUTED))
+                    .build(),
                 spacer(6f),
                 row(pauseButton(), spacerW(8f), markButton(false), spacerW(8f), memoButton()),
             ))
