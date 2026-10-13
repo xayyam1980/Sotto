@@ -2,6 +2,7 @@
 
 <h1 align="center">Sotto</h1>
 <p align="center"><b>A private AI note taker for your watch</b></p>
+<p align="center"><i>Sotto, from Italian <b>sotto voce</b> ("under the voice"): a quiet note taker that listens in the background and keeps everything on your devices.</i></p>
 
 Sotto turns a Wear OS watch into an always-on, speech-only note taker.
 The watch records when people talk. The phone turns each recording into a transcript with speakers, a summary and action items.
