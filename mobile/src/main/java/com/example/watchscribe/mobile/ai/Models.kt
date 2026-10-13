@@ -29,15 +29,15 @@ enum class ModelId(
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-turbo.tar.bz2",
         563_790_207, "whisper-turbo.tar.bz2", true,
     ),
-    DIARIZER(
-        "Speaker detection", "Who speaks when (Reverb v1 by Rev, noncommercial license)",
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-reverb-diarization-v1.tar.bz2",
-        10_400_000, "reverb-v1.tar.bz2", true,
+    SPEECH(
+        "Speech detection", "Finds speech and turns (pyannote 3.0)",
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+        6_958_444, "pyannote.tar.bz2", true,
     ),
-    VOICEPRINT(
-        "Voice fingerprints", "Telling speakers apart (WeSpeaker CAM++)",
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_CAM++_LM.onnx",
-        27_900_000, "voiceprint-campp.onnx", false,
+    VOICES_EN(
+        "Voice fingerprints", "Telling speakers apart (3D-Speaker ERes2Net)",
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
+        26_485_263, "voiceprint-eres2net-en.onnx", false,
     ),
     GEMMA_E2B(
         "Gemma 4 E2B", "Summaries & Ask (faster)",
@@ -82,16 +82,16 @@ object Models {
     fun whisperTokens(ctx: Context) = File(dir(ctx), "sherpa-onnx-whisper-turbo/turbo-tokens.txt").path
     private const val PARAKEET_DIR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
     fun parakeet(ctx: Context, part: String) = File(dir(ctx), "$PARAKEET_DIR/$part").path
-    private const val REVERB_DIR = "sherpa-onnx-reverb-diarization-v1"
+    private const val PYANNOTE_DIR = "sherpa-onnx-pyannote-segmentation-3-0"
     fun segmentation(ctx: Context): String {
-        val int8 = File(dir(ctx), "$REVERB_DIR/model.int8.onnx")
-        return (if (int8.exists()) int8 else File(dir(ctx), "$REVERB_DIR/model.onnx")).path
+        val int8 = File(dir(ctx), "$PYANNOTE_DIR/model.int8.onnx")
+        return (if (int8.exists()) int8 else File(dir(ctx), "$PYANNOTE_DIR/model.onnx")).path
     }
-    fun voiceEmbedding(ctx: Context) = File(dir(ctx), ModelId.VOICEPRINT.fileName).path
+    fun voiceEmbedding(ctx: Context) = File(dir(ctx), ModelId.VOICES_EN.fileName).path
     fun gemma(ctx: Context, m: ModelId) = File(dir(ctx), m.fileName).path
 
     /** Models needed for transcription with speaker labels, with the speech model chosen in Settings. */
-    fun transcription(ctx: Context) = listOf(AiSettings.asrModel(ctx), ModelId.DIARIZER, ModelId.VOICEPRINT)
+    fun transcription(ctx: Context) = listOf(AiSettings.asrModel(ctx), ModelId.SPEECH, ModelId.VOICES_EN)
 
     fun download(ctx: Context, m: ModelId) {
         if (isReady(ctx, m) || prefs(ctx).getLong(m.name, -1L) >= 0) return
@@ -113,7 +113,7 @@ object Models {
         File(dir(ctx), m.fileName).delete()
         if (m == ModelId.WHISPER) File(dir(ctx), "sherpa-onnx-whisper-turbo").deleteRecursively()
         if (m == ModelId.PARAKEET) File(dir(ctx), PARAKEET_DIR).deleteRecursively()
-        if (m == ModelId.DIARIZER) File(dir(ctx), REVERB_DIR).deleteRecursively()
+        if (m == ModelId.SPEECH) File(dir(ctx), PYANNOTE_DIR).deleteRecursively()
         refresh(ctx)
     }
 
@@ -171,10 +171,14 @@ object Models {
         ModelState.Failed("Couldn't unpack: ${t.message}")
     }
 
-    /** Frees the space of models earlier versions used (pyannote, Chinese-trained voice fingerprints). */
+    /** Frees the space of speaker models earlier test builds used. */
     private fun removeReplaced(ctx: Context) {
         val d = dir(ctx)
-        listOf("sherpa-onnx-pyannote-segmentation-3-0", "voice-embedding.onnx", "SPEAKERS.ok", "VOICES.ok")
+        listOf(
+            "voice-embedding.onnx", "SPEAKERS.ok", "VOICES.ok",
+            "sherpa-onnx-reverb-diarization-v1", "reverb-v1.tar.bz2", "DIARIZER.ok",
+            "voiceprint-campp.onnx", "VOICEPRINT.ok",
+        )
             .map { File(d, it) }.filter { it.exists() }.forEach { it.deleteRecursively() }
     }
 

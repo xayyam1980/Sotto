@@ -30,7 +30,8 @@ import kotlin.math.sqrt
  *  - Parakeet v3 (fast, accurate, European languages) or Whisper turbo (all languages), set in Settings
  *  - Whisper: if it guesses a language outside the allowed list, redo in the first one
  *  - drop/redo pieces where it loops ("что я не знаю, что я не знаю…")
- *  - speakers: Reverb (pyannote-based) turns + WeSpeaker voice fingerprints, number of people found automatically;
+ *  - Parakeet: whole recording with word times; speakers decided per sentence from voice fingerprints (3D-Speaker);
+ *  - Whisper: speakers from pyannote turns + voice fingerprints, number of people found automatically;
  *    each turn is transcribed separately so lines don't mix people
  */
 class Transcriber(private val ctx: Context) : AutoCloseable {
@@ -120,10 +121,17 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
     fun transcribe(wav: File, allowed: List<String>, numSpeakers: Int = -1, onProgress: (Float) -> Unit = {}): Result {
         val x = load16k(wav)
         val fallback = allowed.firstOrNull() ?: "en"
+        if (engine == ModelId.PARAKEET && Models.isReady(ctx, ModelId.SPEECH) && Models.isReady(ctx, ModelId.VOICES_EN)) {
+            try {
+                return transcribeByWords(x, allowed, numSpeakers, onProgress)
+            } catch (t: Throwable) {
+                Log.w("SottoAsr", "Word-level speakers failed; falling back", t)
+            }
+        }
 
         var spkError: String? = null
         val turns: List<Turn>? = when {
-            !Models.isReady(ctx, ModelId.DIARIZER) || !Models.isReady(ctx, ModelId.VOICEPRINT) -> { spkError = "Speaker models not downloaded"; null }
+            !Models.isReady(ctx, ModelId.SPEECH) || !Models.isReady(ctx, ModelId.VOICES_EN) -> { spkError = "Speaker models not downloaded"; null }
             else -> try {
                 diarize(x, numSpeakers).ifEmpty { spkError = "No voices found"; null }
             } catch (t: Throwable) {
@@ -170,6 +178,181 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         val byIndex = order.entries.associate { (label, idx) -> idx to label }
         val voices = List(order.size) { idx -> byIndex[idx]?.let { lastCentroids.getOrNull(it) } ?: FloatArray(0) }
         return Result(langTime.maxByOrNull { it.value }?.key ?: fallback, out, order.size, spkError, voices)
+    }
+
+
+    // ---------------------------------------------------------------------------------------------
+    // Parakeet path: transcribe everything with word times, then decide per sentence who spoke.
+    // Tested on real watch audio: people answering each other quickly are split correctly, because
+    // speaker changes almost always fall between sentences.
+
+    private class Word(val t: Double, val text: String)
+
+    /** Speech regions (seconds) from the speech model, joined across pauses under 0.3 s. */
+    private fun speechRegions(x: FloatArray): List<DoubleArray> {
+        val sd = OfflineSpeakerDiarization(
+            config = OfflineSpeakerDiarizationConfig(
+                segmentation = OfflineSpeakerSegmentationModelConfig(
+                    pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(model = Models.segmentation(ctx)),
+                    numThreads = threads,
+                ),
+                embedding = SpeakerEmbeddingExtractorConfig(model = Models.voiceEmbedding(ctx), numThreads = threads),
+                clustering = FastClusteringConfig(numClusters = -1, threshold = 0.5f),
+                minDurationOn = 0.3f,
+                minDurationOff = 0.2f,
+            ),
+        )
+        val raw = try { sd.process(x) } finally { sd.release() }
+        val out = mutableListOf<DoubleArray>()
+        raw.map { doubleArrayOf(it.start.toDouble(), it.end.toDouble()) }.sortedBy { it[0] }.forEach { r ->
+            val last = out.lastOrNull()
+            if (last != null && r[0] <= last[1] + 0.3) last[1] = max(last[1], r[1]) else out += r
+        }
+        return out
+    }
+
+    private fun parakeetWords(samples: FloatArray, offset: Double): Pair<List<Word>, String> {
+        val rec = parakeet()
+        val stream = rec.createStream()
+        try {
+            stream.acceptWaveform(samples, 16_000)
+            rec.decode(stream)
+            val r = rec.getResult(stream)
+            val text = r.text.trim()
+            val tokens = r.tokens; val times = r.timestamps
+            if (tokens.isEmpty() || times.size != tokens.size) return (if (text.isBlank()) emptyList() else listOf(Word(offset, text))) to text
+            val words = mutableListOf<Word>()
+            val cur = StringBuilder(); var t0 = 0.0
+            for (i in tokens.indices) {
+                val tok = tokens[i]
+                if (tok.startsWith(" ") || tok.startsWith("\u2581")) {
+                    if (cur.isNotBlank()) words += Word(offset + t0, cur.toString())
+                    cur.setLength(0); cur.append(tok.trimStart(' ', '\u2581')); t0 = times[i].toDouble()
+                } else {
+                    if (cur.isEmpty()) t0 = times[i].toDouble()
+                    cur.append(tok)
+                }
+            }
+            if (cur.isNotBlank()) words += Word(offset + t0, cur.toString())
+            return words to text
+        } finally {
+            stream.release()
+        }
+    }
+
+    private fun transcribeByWords(x: FloatArray, allowed: List<String>, numSpeakers: Int, onProgress: (Float) -> Unit): Result {
+        val fallback = allowed.firstOrNull() ?: "en"
+        val total = x.size / 16_000.0
+
+        // 1) Words with times. Long pieces (15-30 s, cut in pauses) give Parakeet more context.
+        val words = mutableListOf<Word>()
+        val langTime = HashMap<String, Double>()
+        val pieces = segment(x, 15.0, 30.0)
+        pieces.forEachIndexed { i, (a, b) ->
+            val (w, text) = parakeetWords(x.copyOfRange(a, b), a / 16_000.0)
+            words += w
+            if (text.isNotBlank()) { val l = guessLanguage(text, allowed); langTime[l] = (langTime[l] ?: 0.0) + (b - a) }
+            onProgress(0.05f + (i + 1f) / pieces.size * 0.5f)
+        }
+        val lang = langTime.maxByOrNull { it.value }?.key ?: fallback
+        if (words.isEmpty()) return Result(lang, emptyList(), 0, null)
+
+        // 2) Voice fingerprints of short windows over the speech, grouped into people
+        val regions = speechRegions(x)
+        onProgress(0.6f)
+        val win = 1.5; val hop = 1.0
+        val windows = mutableListOf<DoubleArray>()
+        for (r in regions) {
+            val len = r[1] - r[0]
+            if (len < 0.5) continue
+            if (len <= win) { windows += doubleArrayOf(r[0], r[1]); continue }
+            var t = r[0]
+            while (t + win <= r[1]) { windows += doubleArrayOf(t, t + win); t += hop }
+            if (windows.last()[1] < r[1] - 0.3) windows += doubleArrayOf(r[1] - win, r[1])
+        }
+        val ext = SpeakerEmbeddingExtractor(config = SpeakerEmbeddingExtractorConfig(model = Models.voiceEmbedding(ctx), numThreads = threads))
+        try {
+            fun fp(a: Double, b: Double): FloatArray {
+                val ia = (a * 16_000).toInt().coerceIn(0, x.size); val ib = (b * 16_000).toInt().coerceIn(ia, x.size)
+                return unit(embed(ext, x, ia, ib))
+            }
+            if (windows.isEmpty()) return Result(lang, linesOf(words, List(sentencesOf(words).size) { 0 }, total), 1, "No voices found")
+            val emb = windows.mapIndexed { i, w -> fp(w[0], w[1]).also { if (i % 20 == 0) onProgress(0.6f + 0.3f * i / windows.size) } }
+            // Group at most 400 windows (spread over the recording), then give every window its nearest group
+            val step = max(1, emb.size / 400)
+            val sample = emb.indices.filter { it % step == 0 }
+            val sLab = cluster(sample.map { emb[it] }, DoubleArray(sample.size) { 1.0 }, numSpeakers)
+            val c = sLab.max() + 1
+            val centroids = (0 until c).map { g ->
+                val m = FloatArray(emb[0].size)
+                sample.forEachIndexed { k, i -> if (sLab[k] == g) for (d in m.indices) m[d] += emb[i][d] }
+                unit(m)
+            }
+            val lab = IntArray(emb.size) { i -> centroids.indices.maxBy { g -> dot(emb[i], centroids[g]) } }
+
+            // 3) One speaker per sentence: its own fingerprint if long enough, else the windows' vote
+            val sents = sentencesOf(words)
+            val spk = sents.indices.map { k ->
+                if (c == 1) return@map 0
+                val s = sents[k]
+                val a = s.first().t - 0.1
+                val next = sents.getOrNull(k + 1)?.first()?.t ?: total
+                val b = minOf(next - 0.05, s.last().t + 1.2)
+                if (b - a >= 0.8) {
+                    val e = fp(a, b)
+                    centroids.indices.maxBy { g -> dot(e, centroids[g]) }
+                } else {
+                    val votes = DoubleArray(c)
+                    windows.forEachIndexed { i, w -> votes[lab[i]] += max(0.0, minOf(b, w[1]) - max(a, w[0])) }
+                    votes.indices.maxBy { votes[it] }
+                }
+            }
+            onProgress(0.97f)
+
+            // 4) Lines; number people S1, S2… in order of first appearance
+            val order = LinkedHashMap<Int, Int>()
+            spk.forEach { if (it !in order) order[it] = order.size }
+            val lines = linesOf(words, spk.map { order[it]!! }, total)
+            val voices = List(order.size) { idx -> centroids[order.entries.first { it.value == idx }.key] }
+            onProgress(1f)
+            return Result(lang, lines, order.size, null, voices)
+        } finally {
+            ext.release()
+        }
+    }
+
+    /** Sentences from punctuation; titles like "Mr." don't end one; very long ones split at the longest pause. */
+    private fun sentencesOf(words: List<Word>): List<List<Word>> {
+        val out = mutableListOf<List<Word>>()
+        var cur = mutableListOf<Word>()
+        for (w in words) {
+            cur += w
+            if (Regex("[.?!…]$").containsMatchIn(w.text) && w.text.lowercase() !in ABBREVIATIONS) { out += cur; cur = mutableListOf() }
+        }
+        if (cur.isNotEmpty()) out += cur
+        fun split(s: List<Word>): List<List<Word>> {
+            if (s.size < 4 || s.last().t - s.first().t <= 12.0) return listOf(s)
+            val k = (1 until s.size).maxBy { s[it].t - s[it - 1].t }
+            return split(s.subList(0, k)) + split(s.subList(k, s.size))
+        }
+        return out.flatMap(::split)
+    }
+
+    /** Joins consecutive sentences of the same person (pauses under 2 s, lines under 30 s). */
+    private fun linesOf(words: List<Word>, spk: List<Int>, total: Double): List<Seg> {
+        val sents = sentencesOf(words)
+        val out = mutableListOf<Seg>()
+        sents.forEachIndexed { k, s ->
+            val t0 = s.first().t
+            val t1 = sents.getOrNull(k + 1)?.first()?.t ?: minOf(total, s.last().t + 1.0)
+            val text = s.joinToString(" ") { it.text }
+            val who = spk.getOrNull(k)
+            val last = out.lastOrNull()
+            if (last != null && last.speaker == who && t0 - last.t1 < 2.0 && t1 - last.t0 < 30.0)
+                out[out.size - 1] = last.copy(t1 = t1, text = last.text + " " + text)
+            else out += Seg(t0, t1, text, who)
+        }
+        return out
     }
 
     /**
@@ -319,6 +502,7 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
 
     companion object {
         const val MAX_SPEAKERS = 6
+        private val ABBREVIATIONS = setOf("mr.", "mrs.", "ms.", "dr.", "prof.", "st.", "np.", "tzn.", "ul.", "e.g.", "i.e.", "etc.", "vs.", "p.", "nr.")
         /** Two groups whose voices are on average this similar are one person. */
         const val SAME_PERSON = 0.45
         /** Minimum separation quality (silhouette) to believe there is more than one person. */

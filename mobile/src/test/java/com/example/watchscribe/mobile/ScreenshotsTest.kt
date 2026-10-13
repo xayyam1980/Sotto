@@ -18,6 +18,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import java.io.File
 
 /**
@@ -35,12 +38,14 @@ class ScreenshotsTest {
     private fun note(
         id: Int, minutesAgo: Long, sec: Double, title: String, place: String?, summary: String?,
         segs: List<Seg>?, starred: Boolean = false, actions: List<String> = emptyList(), marks: List<Double> = emptyList(),
+        names: List<String?> = emptyList(),
     ) = Recording(
         id = "chunk_sample_$id.wav", clean = File("sample_$id.wav"), raw = null, start = now - minutesAgo * 60_000, seconds = sec,
         sizeBytes = 0, title = title, customTitle = false, starred = starred, place = place, lat = null, lon = null,
         peaks = List(64) { i -> (0.25f + 0.7f * kotlin.math.abs(kotlin.math.sin(i * 0.37 + id)).toFloat()) },
         segments = segs, lang = "en", sync = null, marks = marks, summary = summary, actions = actions,
         speakers = segs?.mapNotNull { it.speaker }?.distinct()?.size ?: 0,
+        names = names,
     )
 
     private val meeting = note(
@@ -58,6 +63,7 @@ class ScreenshotsTest {
         starred = true,
         actions = listOf("Anna: draft two backend job posts by Friday", "Move budget review to next Tuesday", "Plan mobile release testing for November"),
         marks = listOf(30.5),
+        names = listOf("Me", "Anna", "Piotr"),
     )
     private val notes = listOf(
         meeting,
@@ -97,6 +103,27 @@ class ScreenshotsTest {
 
     @Test fun noteDetail() = shoot("phone-note") {
         RecordingScreen(r = meeting, onBack = {}, onStar = {}, onShare = {}, onDelete = {}, onRename = {})
+    }
+
+    /** Settings: People, Keep audio, Weekly summary, Backup. */
+    @Test fun settings() {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        File(ctx.filesDir, "people.json").writeText(
+            """[{"id":"1","name":"Me","n":12,"voice":[1,0,0]},{"id":"2","name":"Anna","n":5,"voice":[0,1,0]},{"id":"3","name":"Piotr","n":2,"voice":[0,0,1]}]""",
+        )
+        com.example.watchscribe.mobile.data.People.invalidate()
+        com.example.watchscribe.mobile.data.People.load(ctx)
+        shoot("phone-settings") {
+            // Same colours as inside the real Settings sheet
+            androidx.compose.material3.Surface(
+                color = com.example.watchscribe.mobile.ui.Palette.Surface,
+                contentColor = com.example.watchscribe.mobile.ui.Palette.Text,
+            ) {
+                androidx.compose.foundation.layout.Column(
+                    androidx.compose.ui.Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                ) { com.example.watchscribe.mobile.ui.MoreSettings() }
+            }
+        }
     }
 
     @Test fun places() = shoot("phone-places") {

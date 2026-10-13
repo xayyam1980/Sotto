@@ -19,8 +19,8 @@ android {
         applicationId = "com.example.watchscribe"
         minSdk = 30          // Wear OS 3+ (Watch4 runs newer)
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.0"
+        versionCode = 13
+        versionName = "1.3"
     }
 
     // Release key (keep sotto-release.jks + keystore.properties backed up: updates need the same key)
