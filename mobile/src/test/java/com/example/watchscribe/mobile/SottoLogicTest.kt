@@ -3,6 +3,7 @@ package com.example.watchscribe.mobile
 import com.example.watchscribe.mobile.ai.Gemma
 import com.example.watchscribe.mobile.ai.Transcriber
 import com.example.watchscribe.mobile.data.Exporter
+import com.example.watchscribe.mobile.data.LocationLog
 import com.example.watchscribe.mobile.data.Recording
 import com.example.watchscribe.mobile.data.Seg
 import com.example.watchscribe.mobile.data.Wav
@@ -250,10 +251,13 @@ class SottoLogicTest {
     }
 
     @Test fun locationLogPicksFixClosestToRecordingStart() {
-        val L = com.example.watchscribe.mobile.data.LocationLog
         val t = 1_000_000_000L
-        val fixes = listOf(L.Fix(t - 20 * 60_000, 1.0, 1.0), L.Fix(t + 5 * 60_000, 2.0, 2.0), L.Fix(t + 3 * 3_600_000, 3.0, 3.0))
-        assertEquals(2.0, L.nearest(fixes, t)!!.lat, 0.0)
-        assertNull(L.nearest(fixes, t + 90 * 60_000))
+        val fixes = listOf(
+            LocationLog.Fix(t - 20 * 60_000, 1.0, 1.0),
+            LocationLog.Fix(t + 5 * 60_000, 2.0, 2.0),
+            LocationLog.Fix(t + 3 * 3_600_000, 3.0, 3.0),
+        )
+        assertEquals(2.0, LocationLog.nearest(fixes, t)!!.lat, 0.0)
+        assertNull(LocationLog.nearest(fixes, t + 90 * 60_000))
     }
 }
