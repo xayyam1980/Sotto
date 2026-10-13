@@ -18,19 +18,28 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Headset
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,11 +61,27 @@ fun PhoneMicCard() {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(live.running) { while (live.running) { now = System.currentTimeMillis(); delay(500) } }
 
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) PhoneRecorder.start(ctx) else Toast.makeText(ctx, "Microphone permission is needed", Toast.LENGTH_SHORT).show()
+    // Microphones: the phone's own, plus any connected headset (updates when one connects or disconnects)
+    var inputs by remember { mutableStateOf(PhoneRecorder.inputs(ctx)) }
+    DisposableEffect(Unit) {
+        val am = ctx.getSystemService(AudioManager::class.java)
+        val cb = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) { inputs = PhoneRecorder.inputs(ctx) }
+            override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) { inputs = PhoneRecorder.inputs(ctx) }
+        }
+        am.registerAudioDeviceCallback(cb, null)
+        onDispose { am.unregisterAudioDeviceCallback(cb) }
     }
-    fun startRec() {
-        if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) PhoneRecorder.start(ctx)
+    val prefs = remember { ctx.getSharedPreferences("phone_mic", android.content.Context.MODE_PRIVATE) }
+    var wanted by remember { mutableStateOf(prefs.getString("mic", "Phone microphone")!!) }
+    val selected = inputs.firstOrNull { it.label == wanted } ?: inputs.first()
+
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) PhoneRecorder.start(ctx, selected.id) else Toast.makeText(ctx, "Microphone permission is needed", Toast.LENGTH_SHORT).show()
+    }
+    val consent = rememberConsentGate()
+    fun startRec() = consent.ask {
+        if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) PhoneRecorder.start(ctx, selected.id)
         else perm.launch(Manifest.permission.RECORD_AUDIO)
     }
 
@@ -75,6 +100,34 @@ fun PhoneMicCard() {
             }
             Text("Start", color = Palette.Live, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Mic", fontSize = 12.sp, color = Palette.Muted, modifier = Modifier.padding(start = 4.dp, end = 2.dp))
+            inputs.forEach { input ->
+                val on = input == selected
+                Row(
+                    Modifier.height(32.dp).clip(RoundedCornerShape(16.dp))
+                        .background(if (on) Palette.AccentContainer else Palette.Surface)
+                        .border(1.dp, if (on) Palette.Accent else Palette.Line, RoundedCornerShape(16.dp))
+                        .clickable { wanted = input.label; prefs.edit().putString("mic", input.label).apply() }
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (input.type == AudioDeviceInfo.TYPE_BUILTIN_MIC) Icons.Rounded.PhoneAndroid else Icons.Rounded.Headset, null,
+                        Modifier.size(14.dp), tint = if (on) Palette.Accent else Palette.Muted,
+                    )
+                    Box(Modifier.width(6.dp))
+                    Text(input.label, fontSize = 12.sp, color = if (on) Palette.Text else Palette.Soft, maxLines = 1)
+                }
+            }
+            if (inputs.size == 1) Text(
+                "Connect a headset to use its mic", fontSize = 12.sp, color = Palette.Muted, maxLines = 1,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
         return
     }
 
@@ -86,7 +139,10 @@ fun PhoneMicCard() {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(10.dp).clip(CircleShape).background(Palette.Live))
-            Text("Recording with phone", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text("Recording with phone", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                if (live.mic.isNotBlank()) Text("Mic: ${live.mic}", fontSize = 12.sp, color = Palette.Muted, maxLines = 1)
+            }
             Text("%d:%02d".format(sec / 60, sec % 60), fontSize = 20.sp, fontFamily = FontFamily.Monospace, color = Palette.Live)
         }
         // level meter

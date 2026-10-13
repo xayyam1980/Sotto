@@ -4,6 +4,8 @@ import android.media.MediaPlayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -113,6 +116,7 @@ fun RecordingScreen(
                 MetaChip("${detailFmt.format(r.start)} · ${Exporter.length(r.seconds)}", bg = Palette.Surface)
                 MetaChip(r.placeOrUnknown, bg = Palette.Surface, icon = true)
             }
+            NoteProgress(r)
             if (r.marks.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 r.marks.forEach { m ->
                     Box(
@@ -133,6 +137,7 @@ fun RecordingScreen(
                     "${langName(r.lang)} · ${r.transcriptText.split(Regex("\\s+")).size} words · tap a line to play from there",
                     fontSize = 12.sp, color = Palette.Muted,
                 )
+                SpeakerControl(r)
                 segs.forEach { sg ->
                     val marked = r.marks.any { it >= sg.t0 - 1 && it < sg.t1 }
                     Row(
@@ -158,6 +163,7 @@ fun RecordingScreen(
                     Text(r.summary, fontSize = 15.sp, lineHeight = 22.sp, color = Color(0xFFDDE1E5))
                     if (r.speakers > 0) Text("${r.speakers} ${if (r.speakers == 1) "speaker" else "speakers"} · ${langName(r.lang)}", fontSize = 12.sp, color = Palette.Muted)
                 }
+                if (!r.segments.isNullOrEmpty()) SpeakerControl(r)
                 if (r.actions.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     SectionLabel("Action items")
                     r.actions.forEach { a ->
@@ -185,6 +191,7 @@ fun RecordingScreen(
                     Text(head, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Text(body, fontSize = 14.sp, lineHeight = 20.sp, color = Palette.Muted)
                 }
+                if (segs != null && segs.isEmpty()) SpeakerControl(r)
             }
 
             // Hand-off to your own Claude / Gemini app (uses your subscription there)
@@ -315,4 +322,48 @@ private fun SmallPillButton(label: String, color: androidx.compose.ui.graphics.C
             .clickable(onClick = onClick).padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) { Text(label, fontSize = 13.sp, color = color, fontFamily = FontFamily.Monospace) }
+}
+
+
+/**
+ * "How many people spoke?" Auto, or a fixed count, which makes speaker detection much more reliable.
+ * Re-runs only the speaker step on the phone (a few seconds per minute of audio).
+ */
+@Composable
+private fun SpeakerControl(r: com.example.watchscribe.mobile.data.Recording) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val jobs by com.example.watchscribe.mobile.ai.ProcessWorker.jobs.collectAsState()
+    val busy = r.redo != null || jobs.containsKey(r.id)
+    fun redo(n: Int) = com.example.watchscribe.mobile.ai.ProcessWorker.redo(ctx, r.id, n)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.height(30.dp).clip(RoundedCornerShape(15.dp)).background(Palette.Surface)
+                    .border(1.dp, Palette.Accent, RoundedCornerShape(15.dp))
+                    .clickable(enabled = !busy) { redo(-1) }.padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("Re-transcribe", fontSize = 12.sp, color = if (busy) Palette.Muted else Palette.Accent) }
+            Text("Speakers", fontSize = 12.sp, color = Palette.Muted, modifier = Modifier.padding(start = 4.dp))
+            listOf(1 to "1", 2 to "2", 3 to "3", 4 to "4", 5 to "5", 6 to "6").forEach { (n, label) ->
+                val on = !busy && r.speakers == n
+                Box(
+                    Modifier.height(30.dp).clip(RoundedCornerShape(15.dp))
+                        .background(if (on) Palette.AccentContainer else Palette.Surface)
+                        .border(1.dp, if (on) Palette.Accent else Palette.Line, RoundedCornerShape(15.dp))
+                        .clickable(enabled = !busy) { redo(n) }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(label, fontSize = 12.sp, color = if (on) Palette.Text else Palette.Soft) }
+            }
+        }
+        when {
+            busy -> {}
+            r.speakerError != null -> Text(r.speakerError, fontSize = 12.sp, color = Palette.Danger)
+            r.speakers <= 1 -> Text("One voice found. If more people spoke, tap how many.", fontSize = 12.sp, color = Palette.Muted)
+            else -> Text("Speakers found automatically. Wrong? Tap the right number.", fontSize = 12.sp, color = Palette.Muted)
+        }
+    }
 }

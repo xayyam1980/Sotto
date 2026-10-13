@@ -125,4 +125,28 @@ class SottoLogicTest {
         assertEquals("1:05", Exporter.stamp(65.4))
         assertEquals("1:01:01", Exporter.length(3661.0))
     }
+
+    // ---------- speakers: how many people are in a note
+    private fun voices(seed: Long, counts: List<Int>, noise: Double): List<FloatArray> {
+        val r = java.util.Random(seed)
+        val centers = counts.map { FloatArray(192) { r.nextGaussian().toFloat() }.let { v -> val n = kotlin.math.sqrt(v.sumOf { (it * it).toDouble() }); FloatArray(192) { (v[it] / n).toFloat() } } }
+        return counts.flatMapIndexed { c, n -> List(n) { FloatArray(192) { (centers[c][it] + r.nextGaussian() * noise).toFloat() } } }
+    }
+    private fun people(e: List<FloatArray>) = Transcriber.cluster(e, DoubleArray(e.size) { 1.0 + it % 5 }, -1).max() + 1
+
+    @Test fun countsSpeakersAutomatically() {
+        for (seed in 1L..4L) for (noise in listOf(0.047, 0.065, 0.08)) {
+            assertEquals("one voice", 1, people(voices(seed, listOf(30), noise)))
+            assertEquals("two voices", 2, people(voices(seed, listOf(20, 15), noise)))
+            assertEquals("two voices, one says little", 2, people(voices(seed, listOf(30, 4), noise)))
+            assertEquals("three voices", 3, people(voices(seed, listOf(15, 10, 8), noise)))
+        }
+    }
+
+    @Test fun usesTheNumberTheUserChose() {
+        val e = voices(7, listOf(20, 15), 0.05)
+        assertEquals(3, Transcriber.cluster(e, DoubleArray(e.size) { 1.0 }, 3).max() + 1)
+        assertEquals(1, Transcriber.cluster(e, DoubleArray(e.size) { 1.0 }, 1).max() + 1)
+        assertEquals(0, Transcriber.cluster(listOf(e[0]), doubleArrayOf(1.0), -1).single())
+    }
 }

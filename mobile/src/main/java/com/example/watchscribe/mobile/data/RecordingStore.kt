@@ -84,6 +84,8 @@ object RecordingStore {
             summary = ai?.optString("summary", "")?.ifBlank { null },
             actions = ai?.optJSONArray("actions")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
             speakers = tr?.optInt("speakers", 0) ?: 0,
+            speakerError = tr?.optString("spkErr", "")?.ifBlank { null },
+            redo = if (meta.has("redo")) meta.getInt("redo") else null,
         )
     }
 
@@ -104,15 +106,28 @@ object RecordingStore {
         refresh(ctx)
     }
 
-    fun setTranscript(ctx: Context, id: String, lang: String, segments: List<Seg>, speakers: Int) {
+    fun setTranscript(ctx: Context, id: String, lang: String, segments: List<Seg>, speakers: Int, speakerError: String? = null) {
         val arr = JSONArray()
         segments.forEach { s ->
             arr.put(JSONObject().put("t0", s.t0).put("t1", s.t1).put("text", s.text).apply { s.speaker?.let { put("spk", it) } })
         }
         editMeta(ctx, id) { m ->
-            m.put("transcript", JSONObject().put("lang", lang).put("segments", arr).put("speakers", speakers))
+            m.put("transcript", JSONObject().put("lang", lang).put("segments", arr).put("speakers", speakers)
+                .apply { if (speakerError != null) put("spkErr", speakerError) })
             m.remove("sync")
+            m.remove("redo")
         }
+        refresh(ctx)
+    }
+
+    /** Marks a note to be transcribed again; [numSpeakers] <= 0 = find the number of people automatically. */
+    fun requestRedo(ctx: Context, id: String, numSpeakers: Int) {
+        editMeta(ctx, id) { it.put("redo", if (numSpeakers > 0) numSpeakers else -1) }
+        refresh(ctx)
+    }
+
+    fun clearRedo(ctx: Context, id: String) {
+        editMeta(ctx, id) { it.remove("redo") }
         refresh(ctx)
     }
 

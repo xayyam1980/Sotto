@@ -32,6 +32,19 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         private val _status = MutableStateFlow("")
         val status: StateFlow<String> = _status
 
+        /** What is happening to one note right now; [progress] 0..1, or null when it can't be measured. */
+        data class Job(val stage: String, val progress: Float?)
+        private val _jobs = MutableStateFlow<Map<String, Job>>(emptyMap())
+        /** Per-note progress, shown on the note card and the note screen. */
+        val jobs: StateFlow<Map<String, Job>> = _jobs
+        private fun job(id: String, j: Job?) { _jobs.value = if (j == null) _jobs.value - id else _jobs.value + (id to j) }
+
+        /** Transcribe a note again (e.g. with a known number of speakers), right away. */
+        fun redo(ctx: Context, id: String, numSpeakers: Int = -1) {
+            RecordingStore.requestRedo(ctx, id, numSpeakers)
+            runNow(ctx)
+        }
+
         /** Queue processing; respects "only while charging". */
         fun schedule(ctx: Context) {
             val c = Constraints.Builder().setRequiresCharging(AiSettings.onlyWhileCharging(ctx)).build()
@@ -41,8 +54,12 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             )
         }
 
-        /** Start right away, even on battery. */
+        /** Start right away, even on battery. A run in progress picks up new work itself. */
         fun runNow(ctx: Context) {
+            val running = runCatching {
+                WorkManager.getInstance(ctx).getWorkInfosForUniqueWork(WORK).get().any { it.state == androidx.work.WorkInfo.State.RUNNING }
+            }.getOrDefault(false)
+            if (running) return
             WorkManager.getInstance(ctx).enqueueUniqueWork(
                 WORK, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<ProcessWorker>().build(),
             )
@@ -69,40 +86,66 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         RecordingStore.refresh(ctx)
         val allowed = AiSettings.languages(ctx)
 
-        // 1) Transcribe
+        // 1) Transcribe (new notes, and notes the user asked to redo). Loops, so notes added meanwhile are done too.
         if (Models.TRANSCRIPTION.first().let { Models.isReady(ctx, it) }) {
-            val todo = RecordingStore.items.value.filter { it.segments == null }.sortedBy { it.start }
-            if (todo.isNotEmpty()) Transcriber(ctx).use { asr ->
-                todo.forEachIndexed { i, r ->
+            val failed = HashSet<String>()
+            var asr: Transcriber? = null
+            try {
+                while (true) {
+                    val todo = RecordingStore.items.value
+                        .filter { (it.segments == null || it.redo != null) && it.id !in failed }.sortedBy { it.start }
+                    if (todo.isEmpty()) break
+                    todo.forEach { if (it.id !in _jobs.value) job(it.id, Job("Waiting to transcribe", null)) }
+                    val r = todo.first()
                     if (isStopped) return Result.retry()
-                    val label = "Transcribing ${i + 1} of ${todo.size}"
+                    val label = if (todo.size == 1) "Transcribing" else "Transcribing (${todo.size} left)"
                     _status.value = "$label…"
-                    runCatching { setForeground(info(label)) }
+                    job(r.id, Job("Transcribing", 0f))
+                    runCatching { setForeground(info(label, 0f)) }
+                    var shown = -1
                     try {
-                        val res = asr.transcribe(r.raw ?: r.clean, allowed) { p -> _status.value = "$label · ${(p * 100).toInt()}%" }
-                        RecordingStore.setTranscript(ctx, r.id, res.lang, res.segments, res.speakers)
+                        val engine = asr ?: Transcriber(ctx).also { asr = it }
+                        val res = engine.transcribe(r.raw ?: r.clean, allowed, r.redo ?: -1) { p ->
+                            val pct = (p * 100).toInt()
+                            _status.value = "$label · $pct%"
+                            job(r.id, Job("Transcribing", p))
+                            if (pct / 5 != shown) { shown = pct / 5; setForegroundAsync(info("$label · $pct%", p)) }
+                        }
+                        RecordingStore.setTranscript(ctx, r.id, res.lang, res.segments, res.speakers, res.speakerError)
+                        // a redone transcript gets a fresh summary
+                        if (r.redo != null && r.summary != null && Gemma.available(ctx)) RecordingStore.clearAi(ctx, r.id, transcriptToo = false)
                     } catch (t: Throwable) {
                         Log.e(TAG, "Transcription failed for ${r.id}", t)
+                        failed += r.id
+                        RecordingStore.clearRedo(ctx, r.id)
                     }
+                    job(r.id, null)
                 }
+            } finally {
+                asr?.close()
+                _jobs.value = emptyMap()
             }
         }
 
         // 2) Summarise
         if (Gemma.available(ctx)) {
             val todo = RecordingStore.items.value.filter { !it.segments.isNullOrEmpty() && it.summary == null }.sortedBy { it.start }
+            todo.forEach { job(it.id, Job("Waiting for summary", null)) }
             try {
                 todo.forEachIndexed { i, r ->
                     if (isStopped) return Result.retry()
                     val label = "Summarising ${i + 1} of ${todo.size}"
                     _status.value = "$label…"
+                    job(r.id, Job("Summarising", null))
                     runCatching { setForeground(info(label)) }
                     val transcript = r.segments!!.joinToString("\n") { s -> (s.speaker?.let { "Speaker ${it + 1}: " } ?: "") + s.text }
-                    Gemma.summarize(ctx, transcript, r.lang)?.let {
+                    runCatching { Gemma.summarize(ctx, transcript, r.lang) }.getOrNull()?.let {
                         RecordingStore.setAi(ctx, r.id, it.title.ifBlank { r.title }, it.summary, it.actions)
                     }
+                    job(r.id, null)
                 }
             } finally {
+                todo.forEach { job(it.id, null) }
                 Gemma.unload()
             }
         }

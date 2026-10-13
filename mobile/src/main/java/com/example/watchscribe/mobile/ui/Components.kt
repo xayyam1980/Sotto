@@ -30,6 +30,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -115,6 +117,7 @@ fun RecordingCard(
                 MiniWave(r.peaks, Color(0xFF4A5059))
             }
             Text(r.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            NoteProgress(r)
             val gist = r.summary ?: r.transcriptText
             Text(
                 when {
@@ -157,4 +160,21 @@ fun Pill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
 @Composable
 fun Dot(color: Color, size: Int = 10) {
     Box(Modifier.size(size.dp).clip(CircleShape).background(color))
+}
+
+/** "Transcribing 42%" with a bar, while the phone works on this note. Shows nothing otherwise. */
+@Composable
+fun NoteProgress(r: Recording) {
+    val jobs by com.example.watchscribe.mobile.ai.ProcessWorker.jobs.collectAsState()
+    val j = jobs[r.id] ?: if (r.redo != null) com.example.watchscribe.mobile.ai.ProcessWorker.Companion.Job("Waiting to transcribe again", null) else return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            j.stage + (j.progress?.let { " · ${(it * 100).toInt()}%" } ?: "…"),
+            fontSize = 12.sp, color = Palette.Accent, fontWeight = FontWeight.Medium,
+        )
+        val mod = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+        if (j.progress != null) androidx.compose.material3.LinearProgressIndicator(
+            progress = { j.progress ?: 0f }, modifier = mod, color = Palette.Accent, trackColor = Palette.Line,
+        ) else androidx.compose.material3.LinearProgressIndicator(modifier = mod, color = Palette.Accent, trackColor = Palette.Line)
+    }
 }

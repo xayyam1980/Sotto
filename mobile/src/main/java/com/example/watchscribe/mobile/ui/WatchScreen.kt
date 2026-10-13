@@ -140,6 +140,7 @@ fun WatchScreen(bottomNav: @Composable () -> Unit) {
                 // Controls
                 val stopped = s?.state == "paused" && s.pausedUntil == Long.MAX_VALUE
                 fun io(block: () -> Unit) = scope.launch(Dispatchers.IO) { block() }
+                val consent = rememberConsentGate()
                 if (s != null && (reachable != 0L || fresh)) {
                     when {
                         s.state == "listening" -> {
@@ -150,9 +151,9 @@ fun WatchScreen(bottomNav: @Composable () -> Unit) {
                             }
                         }
                         s.state == "paused" -> Action(if (stopped) "Start listening" else "Resume now", Icons.Rounded.PlayArrow, Modifier.fillMaxWidth(), primary = true) {
-                            io { WatchSync.start(ctx) }
+                            if (stopped) consent.ask { io { WatchSync.start(ctx) } } else io { WatchSync.start(ctx) }
                         }
-                        else -> Action("Start listening", Icons.Rounded.Mic, Modifier.fillMaxWidth(), primary = true) { io { WatchSync.start(ctx) } }
+                        else -> Action("Start listening", Icons.Rounded.Mic, Modifier.fillMaxWidth(), primary = true) { consent.ask { io { WatchSync.start(ctx) } } }
                     }
                     if (s.state != "off") Text(
                         "Turn off completely", fontSize = 13.sp, color = Palette.Muted,

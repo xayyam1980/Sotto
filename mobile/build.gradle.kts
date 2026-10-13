@@ -21,8 +21,8 @@ android {
         applicationId = "com.example.watchscribe"
         minSdk = 31
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.0"
+        versionCode = 11
+        versionName = "1.1"
         ndk { abiFilters += "arm64-v8a" } // the phone is 64-bit ARM; keeps the app small
     }
 

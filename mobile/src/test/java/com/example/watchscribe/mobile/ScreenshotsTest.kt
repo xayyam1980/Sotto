@@ -74,7 +74,21 @@ class ScreenshotsTest {
     private fun shoot(name: String, content: @Composable () -> Unit) =
         captureRoboImage("$out/$name.png") { WatchScribeTheme { content() } }
 
-    @Test fun notes() = shoot("phone-notes") {
+    @Test fun notes() {
+        // A connected Bluetooth headset, so the "Record with phone" card shows the mic choice
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val am = ctx.getSystemService(android.media.AudioManager::class.java)
+        org.robolectric.Shadows.shadowOf(am).setInputDevices(
+            listOf(
+                org.robolectric.shadows.AudioDeviceInfoBuilder.newBuilder()
+                    .setType(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
+                    .build(),
+            ),
+        )
+        notesShot()
+    }
+
+    private fun notesShot() = shoot("phone-notes") {
         LibraryScreen(
             all = notes, opts = ViewOptions(), selection = emptySet(), onSelectionChange = {}, snackbar = SnackbarHostState(),
             onOpen = {}, onOptions = {}, onExport = {}, onDelete = {}, onStar = { _, _ -> }, onAsk = {}, bottomNav = noNav,

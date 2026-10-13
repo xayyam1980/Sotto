@@ -7,7 +7,7 @@ Sotto turns a Wear OS watch into an always-on, speech-only note taker.
 The watch records when people talk. The phone turns each recording into a transcript with speakers, a summary and action items.
 **Everything runs on your own devices. No account, no subscription, no cloud.**
 
-Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) · Version 1.0
+Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) · Phone app 1.1 · Watch app 1.0
 
 | Notes | A note | Watch control |
 |---|---|---|
@@ -32,14 +32,18 @@ Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) �
 **On the phone**
 - **Notes**: all recordings, grouped by day or place, with search, filters, star, rename, delete (with undo) and multi-select.
 - **Transcripts with speakers** (S1, S2…). Tap a line to play from that moment. Marks from the watch are highlighted.
+  The number of people is found automatically. If it's wrong, tap the right number on the note.
+- **Progress on every note**: "Transcribing 42%" and "Summarising…" show on the note itself.
+- **Re-transcribe** any note with one tap, for example after changing languages.
 - **AI summary and action items** for every note, made on the phone by Gemma.
 - **Ask your notes**: ask a question about your conversations and get an answer with links to the notes it used.
 - **Places**: a map with your notes by location. Rename a place once and every note there follows.
 - **Watch tab**: watch status, battery, notes waiting, **Start/Stop/Pause** listening from the phone and **Sync now**.
-- **Record with phone**: use the phone's microphone for meetings (put it on the table).
+- **Record with phone**: record with the phone's own microphone (put it on the table) or with a **headset mic**: Bluetooth (earbuds, AirPods…), wired or USB.
 - **Export & share**: Markdown, PDF or text, to Gmail, Drive, Notion, NotebookLM, Files, or any app.
 - **Open in Claude / Gemini**: hands a note with a ready-made prompt to the official app, so your own subscription can analyse it.
 - **App lock** with fingerprint, face or PIN.
+- **Consent reminder** before recording starts: tell people and get their OK.
 
 ## Requirements
 
@@ -56,7 +60,7 @@ The phone app also works **without a watch**, using **Record with phone**.
 ## Install
 
 ### 1. Phone
-1. Copy **`Sotto-phone-1.0.apk`** to the phone (Drive, e-mail, USB cable…).
+1. Copy **`Sotto-phone-1.1.apk`** to the phone (Drive, e-mail, USB cable…).
 2. Open it. If Android asks, allow **Install unknown apps** for that app once.
 3. Open **Sotto** and allow notifications, location (optional, for Places) and the microphone when asked.
 
@@ -73,7 +77,12 @@ A watch can't open an APK file directly, so it is installed from a computer once
 4. Open **Sotto** on the watch, tap **Start** and allow the microphone and notifications.
 5. Add the tile: swipe left on the watch face → **+** → **Sotto**.
 
-> Updating from an earlier test build? Uninstall the old Sotto first, because it was signed with a different key. **Export your notes before uninstalling.**
+### Updating (keeps your notes and AI models)
+Install the new APK **over the old one; don't uninstall first**. Android keeps all notes and the downloaded models, because every Sotto release is signed with the same key.
+
+If you do uninstall, Android asks **"Keep app data?"**. Tick it, and the notes and models are still there when you install Sotto again.
+
+> Coming from an early test build (before 1.0), signed with a different key? Then one uninstall is unavoidable. **Export your notes first.**
 
 ### 3. One-time AI setup (on the phone, Wi-Fi)
 On the **Notes** screen, the **AI card** shows **Download**. It fetches the models once, about 3.2 GB:
@@ -93,7 +102,7 @@ Downloads continue in the background, over Wi-Fi only.
 | Pause for a meeting break | Tile → **⏸** → 15 min / 1 h / until resumed |
 | Remember an important moment | Tile → **🔖 Mark** (highlighted in the transcript) |
 | Get the latest notes on the phone now | Phone Notes → **Sync**, or Watch tab → **Sync now** |
-| Record a meeting with the phone | Notes → **Record with phone → Start** |
+| Record a meeting with the phone | Notes → **Record with phone** → choose **Mic** (phone or headset) → **Start** → confirm everyone agreed |
 | Process notes right away | AI card → **Now**. By default processing runs **while charging**. |
 | Find something said last week | **Ask** tab, e.g. "What did I promise Anna?" |
 | Send a note to someone | Open the note → **Share**, or long-press notes → **Export** |
@@ -105,7 +114,7 @@ Downloads continue in the background, over Wi-Fi only.
 - **Languages you speak:** transcription chooses only from these. The first one is the fallback.
 - **Summary model** and **summaries in** (English or the recording's language).
 - **Only while charging** (recommended).
-- **Privacy:** App lock; Street names for places (off by default, see below).
+- **Privacy:** App lock; Street names for places (off by default, see below); Consent reminder.
 - **About:** version and author.
 
 ---
@@ -131,6 +140,8 @@ Downloads continue in the background, over Wi-Fi only.
 | Watch says "Phone out of reach" | Recordings stay safe on the watch and sync when the phone is back nearby. |
 | "Start listening" from the phone shows a prompt on the watch | Android lets only the watch itself switch its microphone on after a restart. Tap **Start** once on the watch. |
 | Notes not transcribed | Models downloaded? Phone charging (or tap **Now**)? |
+| Two people, but only S1 | Open the note and tap **Speakers → 2**. Speaker labels are per note; S1 in one note isn't necessarily S1 in another. |
+| Models download again after reinstalling | Install updates over the old app instead of uninstalling (see *Updating*). |
 | Lots of "Unknown place" | Allow location **all the time**. GPS may not get a fix indoors. |
 
 ---

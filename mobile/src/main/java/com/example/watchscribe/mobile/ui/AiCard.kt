@@ -155,6 +155,16 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
                     colors = SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.OnAccent))
             }
 
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Consent reminder", fontSize = 15.sp)
+                    Text("Before recording starts, reminds you to get everyone's OK.", fontSize = 12.sp, color = Palette.Muted)
+                }
+                var remind by remember { mutableStateOf(Consent.remind(ctx)) }
+                Switch(remind, { remind = it; Consent.setRemind(ctx, it) },
+                    colors = SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.OnAccent))
+            }
+
             Section("Models")
             ModelId.entries.forEach { m ->
                 val st = states[m] ?: ModelState.Missing

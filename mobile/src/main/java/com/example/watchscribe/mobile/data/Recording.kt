@@ -24,6 +24,8 @@ data class Recording(
     val summary: String?,        // AI summary (on-phone Gemma)
     val actions: List<String>,   // AI action items
     val speakers: Int,           // number of distinct speakers found (0 = unknown)
+    val speakerError: String? = null, // why speaker detection didn't work, if it failed
+    val redo: Int? = null,       // waiting to be transcribed again: number of speakers, -1 = automatic
 ) {
     val placeOrUnknown: String get() = place ?: "Unknown place"
     val transcriptText: String get() = segments?.joinToString(" ") { it.text } ?: ""
