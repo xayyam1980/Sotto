@@ -88,6 +88,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.example.watchscribe.mobile.data.LocationLog.start(this)
         Thread { RecordingStore.refresh(applicationContext) }.start()
     }
 }

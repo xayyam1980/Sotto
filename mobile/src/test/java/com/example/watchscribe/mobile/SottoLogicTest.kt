@@ -248,4 +248,12 @@ class SottoLogicTest {
         assertEquals(2.5, com.example.watchscribe.mobile.data.Wav.seconds(f), 0.001)
         f.delete()
     }
+
+    @Test fun locationLogPicksFixClosestToRecordingStart() {
+        val L = com.example.watchscribe.mobile.data.LocationLog
+        val t = 1_000_000_000L
+        val fixes = listOf(L.Fix(t - 20 * 60_000, 1.0, 1.0), L.Fix(t + 5 * 60_000, 2.0, 2.0), L.Fix(t + 3 * 3_600_000, 3.0, 3.0))
+        assertEquals(2.0, L.nearest(fixes, t)!!.lat, 0.0)
+        assertNull(L.nearest(fixes, t + 90 * 60_000))
+    }
 }

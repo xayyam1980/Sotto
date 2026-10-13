@@ -16,7 +16,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Tags a recording with where the phone is when it arrives.
+ * Tags a recording with where it was recorded: a fresh GPS fix when the note is new, otherwise
+ * the phone's location log ([LocationLog]) closest to when the note started.
  *
  * Privacy: uses the phone's own GPS only (no Google location service), and names places
  * on the phone by matching earlier notes nearby. Turning addresses into street names
@@ -63,13 +64,33 @@ object PlaceTagger {
         return recent
     }
 
-    fun tag(ctx: Context, id: String) {
+    /** [start] = when the note began (epoch ms). */
+    fun tag(ctx: Context, id: String, start: Long = System.currentTimeMillis()) {
         if (!hasPermission(ctx)) return
+        LocationLog.start(ctx)
         try {
-            val loc = locate(ctx) ?: return
-            RecordingStore.setPlace(ctx, id, describe(ctx, loc.latitude, loc.longitude), loc.latitude, loc.longitude)
+            val now = System.currentTimeMillis()
+            // A note recorded just now: where the phone is now is where it was said
+            val live = if (now - start < 10 * 60_000L) locate(ctx)?.also { LocationLog.add(ctx, it) } else null
+            val (lat, lon) = live?.let { it.latitude to it.longitude }
+                ?: LocationLog.nearest(LocationLog.all(ctx), start)?.let { it.lat to it.lon }
+                ?: return // placed later, when a fix from around that time turns up
+            RecordingStore.setPlace(ctx, id, describe(ctx, lat, lon), lat, lon)
         } catch (t: Throwable) {
             Log.w(TAG, "Could not tag place for $id", t)
+        }
+    }
+
+    /** Places recent notes that have no place yet, using fixes logged around when they started. */
+    fun backfill(ctx: Context) {
+        if (!hasPermission(ctx)) return
+        val fixes = LocationLog.all(ctx)
+        if (fixes.isEmpty()) return
+        if (RecordingStore.items.value.isEmpty()) RecordingStore.refresh(ctx)
+        val since = System.currentTimeMillis() - 48 * 3_600_000L
+        RecordingStore.items.value.filter { it.place == null && it.lat == null && it.start > since }.forEach { r ->
+            val f = LocationLog.nearest(fixes, r.start) ?: return@forEach
+            runCatching { RecordingStore.setPlace(ctx, r.id, describe(ctx, f.lat, f.lon), f.lat, f.lon) }
         }
     }
 

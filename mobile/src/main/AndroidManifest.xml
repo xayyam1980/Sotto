@@ -66,6 +66,11 @@
 
         <!-- Recording with the phone's own microphone -->
         <!-- Home-screen widget -->
+        <!-- Fixes other apps already got (passive), for placing watch notes -->
+        <receiver
+            android:name=".data.PassiveLocationReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".SottoWidget"
             android:exported="false">

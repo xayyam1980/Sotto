@@ -183,7 +183,7 @@ Downloads continue in the background, over Wi-Fi only.
 | Music or Google Translate in my earbuds while recording | Earbud mics only work in "call mode", which lowers music to call quality and competes with Translate for the mic. If the earbuds are busy when you start, Sotto records with the phone's mic instead. If another app takes the mic, Sotto pauses and says so. Best: record with the **watch**, which has its own mic. |
 | Models download again after reinstalling | Install updates over the old app instead of uninstalling (see *Updating*). |
 | Tile shows "Battery saver" | The watch is below 20 %. Sotto keeps listening but syncs every 30 minutes. Charge the watch to return to normal. |
-| Lots of "Unknown place" | Allow location **all the time**. GPS may not get a fix indoors. |
+| Lots of "Unknown place" | Allow location **all the time**. A watch note is placed using the phone's location around the time it was recorded: a GPS fix if it arrives right away, otherwise locations other apps (maps, weather) already got. Indoors with no recent fix, the place is filled in later once the phone gets one. |
 
 ---
 

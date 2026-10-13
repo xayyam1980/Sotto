@@ -101,7 +101,7 @@ class ChunkReceiverService : WearableListenerService() {
             RecordingStore.refresh(this)
             if (marks.isNotEmpty()) RecordingStore.setMarks(this, name, marks)
             if (memo) RecordingStore.setMemo(this, name)
-            PlaceTagger.tag(this, name)
+            PlaceTagger.tag(this, name, RecordingStore.byId(name)?.start ?: System.currentTimeMillis())
             ProcessWorker.schedule(this)
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to receive $name", t)
