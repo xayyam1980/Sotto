@@ -56,6 +56,9 @@ import java.util.Locale
 
 /** Saved digests, so reopening a day shows its summary straight away. Keyed by the exact set of notes. */
 object Digests {
+    /** Set when a notification asks to show a summary ("week"); the Notes screen opens it. */
+    val request = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
     private fun dir(ctx: Context) = File(ctx.filesDir, "digests").apply { mkdirs() }
     private fun file(ctx: Context, ids: List<String>) =
         File(dir(ctx), Integer.toHexString(ids.sorted().joinToString(",").hashCode()) + ".txt")
@@ -71,7 +74,7 @@ private fun noteText(r: Recording) = buildString {
     r.summary?.let { append("Summary: $it\n") }
     if (r.actions.isNotEmpty()) append("Action items: ${r.actions.joinToString("; ")}\n")
     append("Transcript: ")
-    append(r.segments.orEmpty().joinToString(" ") { s -> (s.speaker?.let { "S${it + 1}: " } ?: "") + s.text })
+    append(r.segments.orEmpty().joinToString(" ") { s -> (r.who(s.speaker)?.let { "$it: " } ?: "") + s.text })
 }
 
 /** Asks before deleting a whole group of notes (a day, a place). Undo still works afterwards. */
@@ -138,11 +141,12 @@ fun DigestSheet(title: String, notes: List<Recording>, onOpen: (String) -> Unit,
             }
             if (text.isNotBlank() && !running) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Pill("Share") {
-                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "$title\n\n$text")
+                    val body = "$title\n\n$text".let { if (com.example.watchscribe.mobile.data.Redact.on(ctx)) com.example.watchscribe.mobile.data.Redact.text(it) else it }
+                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, body)
                     ctx.startActivity(Intent.createChooser(send, "Share summary"))
                 }
                 Pill("Copy") {
-                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(title, "$title\n\n$text"))
+                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(title, "$title\n\n$text".let { if (com.example.watchscribe.mobile.data.Redact.on(ctx)) com.example.watchscribe.mobile.data.Redact.text(it) else it }))
                 }
                 Pill("Redo") { run() }
             }

@@ -29,6 +29,14 @@ object AiSettings {
 
     fun setAsrModel(ctx: Context, m: ModelId) = p(ctx).edit().putString("asr", m.name).apply()
 
+    /** Delete audio of transcribed notes after this many days (text stays). 0 = keep forever. */
+    fun keepAudioDays(ctx: Context) = p(ctx).getInt("keepAudio", 0)
+    fun setKeepAudioDays(ctx: Context, days: Int) = p(ctx).edit().putInt("keepAudio", days).apply()
+
+    /** Friday-afternoon reminder with a summary of the week. */
+    fun weeklySummary(ctx: Context) = p(ctx).getBoolean("weekly", true)
+    fun setWeeklySummary(ctx: Context, on: Boolean) = p(ctx).edit().putBoolean("weekly", on).apply()
+
     fun summaryModel(ctx: Context): ModelId =
         runCatching { ModelId.valueOf(p(ctx).getString("llm", ModelId.GEMMA_E2B.name)!!) }.getOrDefault(ModelId.GEMMA_E2B)
 

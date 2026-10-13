@@ -59,6 +59,8 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         RecordingStore.emptyTrash(this)
+        intent?.getStringExtra(com.example.watchscribe.mobile.ai.Housekeeping.EXTRA_DIGEST)?.let { com.example.watchscribe.mobile.ui.Digests.request.value = it }
+        intent?.getStringExtra(SottoWidget.EXTRA_OPEN)?.let { SottoWidget.openRequest.value = it }
         if (android.os.Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         setContent {
             WatchScribeTheme {
@@ -66,6 +68,12 @@ class MainActivity : FragmentActivity() {
                 if (lock.value) LockScreen { AppLock.prompt(this@MainActivity) {} } else App()
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(com.example.watchscribe.mobile.ai.Housekeeping.EXTRA_DIGEST)?.let { com.example.watchscribe.mobile.ui.Digests.request.value = it }
+        intent.getStringExtra(SottoWidget.EXTRA_OPEN)?.let { SottoWidget.openRequest.value = it }
     }
 
     override fun onStart() {
@@ -101,11 +109,20 @@ private fun App() {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { RecordingStore.refresh(ctx) }
         ProcessWorker.schedule(ctx)
+        com.example.watchscribe.mobile.ai.Housekeeping.schedule(ctx)
         // While the app is open: keep model download progress fresh
         while (true) {
             withContext(Dispatchers.IO) { runCatching { Models.refresh(ctx) } }
             delay(2_000)
         }
+    }
+
+    val digestRequest by com.example.watchscribe.mobile.ui.Digests.request.collectAsState()
+    LaunchedEffect(digestRequest) { if (digestRequest != null) screen = Screen.Library }
+    val openRequest by SottoWidget.openRequest.collectAsState()
+    LaunchedEffect(openRequest, all) {
+        val id = openRequest ?: return@LaunchedEffect
+        if (all.any { it.id == id }) { screen = Screen.Detail(id); SottoWidget.openRequest.value = null }
     }
 
     val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
@@ -132,7 +149,7 @@ private fun App() {
     }
 
     fun send(dest: Dest, opt: ExportOptions, ids: List<String>) {
-        val recs = all.filter { it.id in ids }
+        val recs = all.filter { it.id in ids }.let { l -> if (opt.hidePersonal) l.map(com.example.watchscribe.mobile.data.Redact::recording) else l }
         if (recs.isEmpty()) return
         scope.launch {
             val files = withContext(Dispatchers.IO) { Exporter.build(ctx, recs, opt) }

@@ -29,15 +29,15 @@ enum class ModelId(
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-turbo.tar.bz2",
         563_790_207, "whisper-turbo.tar.bz2", true,
     ),
-    SPEAKERS(
-        "Speaker detection", "Who is speaking",
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
-        6_958_444, "pyannote.tar.bz2", true,
+    DIARIZER(
+        "Speaker detection", "Who speaks when (Reverb v1 by Rev, noncommercial license)",
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-reverb-diarization-v1.tar.bz2",
+        10_400_000, "reverb-v1.tar.bz2", true,
     ),
-    VOICES(
-        "Voice fingerprints", "Telling speakers apart",
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
-        39_593_761, "voice-embedding.onnx", false,
+    VOICEPRINT(
+        "Voice fingerprints", "Telling speakers apart (WeSpeaker CAM++)",
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_CAM++_LM.onnx",
+        27_900_000, "voiceprint-campp.onnx", false,
     ),
     GEMMA_E2B(
         "Gemma 4 E2B", "Summaries & Ask (faster)",
@@ -82,12 +82,16 @@ object Models {
     fun whisperTokens(ctx: Context) = File(dir(ctx), "sherpa-onnx-whisper-turbo/turbo-tokens.txt").path
     private const val PARAKEET_DIR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
     fun parakeet(ctx: Context, part: String) = File(dir(ctx), "$PARAKEET_DIR/$part").path
-    fun segmentation(ctx: Context) = File(dir(ctx), "sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx").path
-    fun voiceEmbedding(ctx: Context) = File(dir(ctx), ModelId.VOICES.fileName).path
+    private const val REVERB_DIR = "sherpa-onnx-reverb-diarization-v1"
+    fun segmentation(ctx: Context): String {
+        val int8 = File(dir(ctx), "$REVERB_DIR/model.int8.onnx")
+        return (if (int8.exists()) int8 else File(dir(ctx), "$REVERB_DIR/model.onnx")).path
+    }
+    fun voiceEmbedding(ctx: Context) = File(dir(ctx), ModelId.VOICEPRINT.fileName).path
     fun gemma(ctx: Context, m: ModelId) = File(dir(ctx), m.fileName).path
 
     /** Models needed for transcription with speaker labels, with the speech model chosen in Settings. */
-    fun transcription(ctx: Context) = listOf(AiSettings.asrModel(ctx), ModelId.SPEAKERS, ModelId.VOICES)
+    fun transcription(ctx: Context) = listOf(AiSettings.asrModel(ctx), ModelId.DIARIZER, ModelId.VOICEPRINT)
 
     fun download(ctx: Context, m: ModelId) {
         if (isReady(ctx, m) || prefs(ctx).getLong(m.name, -1L) >= 0) return
@@ -109,7 +113,7 @@ object Models {
         File(dir(ctx), m.fileName).delete()
         if (m == ModelId.WHISPER) File(dir(ctx), "sherpa-onnx-whisper-turbo").deleteRecursively()
         if (m == ModelId.PARAKEET) File(dir(ctx), PARAKEET_DIR).deleteRecursively()
-        if (m == ModelId.SPEAKERS) File(dir(ctx), "sherpa-onnx-pyannote-segmentation-3-0").deleteRecursively()
+        if (m == ModelId.DIARIZER) File(dir(ctx), REVERB_DIR).deleteRecursively()
         refresh(ctx)
     }
 
@@ -122,6 +126,7 @@ object Models {
     /** Updates states; unpacks finished archives. Call from a background thread. */
     @Synchronized
     fun refresh(ctx: Context) {
+        removeReplaced(ctx)
         val dm = ctx.getSystemService(DownloadManager::class.java)
         val out = mutableMapOf<ModelId, ModelState>()
         for (m in ModelId.entries) {
@@ -166,6 +171,13 @@ object Models {
         ModelState.Failed("Couldn't unpack: ${t.message}")
     }
 
+    /** Frees the space of models earlier versions used (pyannote, Chinese-trained voice fingerprints). */
+    private fun removeReplaced(ctx: Context) {
+        val d = dir(ctx)
+        listOf("sherpa-onnx-pyannote-segmentation-3-0", "voice-embedding.onnx", "SPEAKERS.ok", "VOICES.ok")
+            .map { File(d, it) }.filter { it.exists() }.forEach { it.deleteRecursively() }
+    }
+
     private fun untarBz2(archive: File, into: File) {
         TarArchiveInputStream(BZip2CompressorInputStream(archive.inputStream().buffered(1 shl 16))).use { tar ->
             while (true) {
@@ -173,7 +185,7 @@ object Models {
                 if (e.isDirectory || e.name.contains("test_wavs") || e.name.contains("..") || e.name.startsWith("/")) continue
                 // only the files the engines need
                 if (!(e.name.endsWith(".onnx") || e.name.endsWith("tokens.txt"))) continue
-                if (e.name.contains("encoder.onnx") || e.name.contains("decoder.onnx") || e.name.endsWith("/model.onnx")) continue // keep int8 only
+                if (e.name.contains("encoder.onnx") || e.name.contains("decoder.onnx") || e.name.contains("joiner.onnx")) continue // big fp32 copies: keep int8 only
                 val out = File(into, e.name)
                 out.parentFile?.mkdirs()
                 out.outputStream().use { tar.copyTo(it, 1 shl 16) }

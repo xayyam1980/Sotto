@@ -26,12 +26,13 @@ object Handoff {
         if (segs.isNullOrEmpty()) appendLine("(No transcript yet.)")
         else segs.forEach { s ->
             append("[${Exporter.stamp(s.t0)}] ")
-            s.speaker?.let { append("Speaker ${it + 1}: ") }
+            r.whoLong(s.speaker)?.let { append("$it: ") }
             appendLine(s.text)
         }
     }
 
-    fun send(ctx: Context, app: App, r: Recording) {
+    fun send(ctx: Context, app: App, note: Recording) {
+        val r = if (com.example.watchscribe.mobile.data.Redact.on(ctx)) com.example.watchscribe.mobile.data.Redact.recording(note) else note
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, prompt(r))

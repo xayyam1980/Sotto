@@ -93,7 +93,7 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             try {
                 while (true) {
                     val todo = RecordingStore.items.value
-                        .filter { (it.segments == null || it.redo != null) && it.id !in failed }.sortedBy { it.start }
+                        .filter { (it.segments == null || (it.redo != null && !it.audioDeleted)) && it.id !in failed }.sortedBy { it.start }
                     if (todo.isEmpty()) break
                     todo.forEach { if (it.id !in _jobs.value) job(it.id, Job("Waiting to transcribe", null)) }
                     val r = todo.first()
@@ -111,7 +111,7 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                             job(r.id, Job("Transcribing", p))
                             if (pct / 5 != shown) { shown = pct / 5; setForegroundAsync(info("$label · $pct%", p)) }
                         }
-                        RecordingStore.setTranscript(ctx, r.id, res.lang, res.segments, res.speakers, res.speakerError)
+                        RecordingStore.setTranscript(ctx, r.id, res.lang, res.segments, res.speakers, res.speakerError, res.voices)
                         // a redone transcript gets a fresh summary
                         if (r.redo != null && r.summary != null && Gemma.available(ctx)) RecordingStore.clearAi(ctx, r.id, transcriptToo = false)
                     } catch (t: Throwable) {
@@ -138,7 +138,7 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                     _status.value = "$label…"
                     job(r.id, Job("Summarising", null))
                     runCatching { setForeground(info(label)) }
-                    val transcript = r.segments!!.joinToString("\n") { s -> (s.speaker?.let { "Speaker ${it + 1}: " } ?: "") + s.text }
+                    val transcript = r.segments!!.joinToString("\n") { s -> (r.whoLong(s.speaker)?.let { "$it: " } ?: "") + s.text }
                     runCatching { Gemma.summarize(ctx, transcript, r.lang) }.getOrNull()?.let {
                         RecordingStore.setAi(ctx, r.id, it.title.ifBlank { r.title }, it.summary, it.actions)
                     }

@@ -26,7 +26,14 @@ data class Recording(
     val speakers: Int,           // number of distinct speakers found (0 = unknown)
     val speakerError: String? = null, // why speaker detection didn't work, if it failed
     val redo: Int? = null,       // waiting to be transcribed again: number of speakers, -1 = automatic
+    val names: List<String?> = emptyList(), // known people per speaker (S1, S2…), null = unknown
+    val audioDeleted: Boolean = false,      // audio removed by "Keep audio" setting; text kept
 ) {
+    /** Short label for a speaker: the person's name, else S1, S2… */
+    fun who(spk: Int?): String? = spk?.let { names.getOrNull(it) ?: "S${it + 1}" }
+    /** Label for AI prompts and exports: the person's name, else "Speaker 1"… */
+    fun whoLong(spk: Int?): String? = spk?.let { names.getOrNull(it) ?: "Speaker ${it + 1}" }
+
     val placeOrUnknown: String get() = place ?: "Unknown place"
     val transcriptText: String get() = segments?.joinToString(" ") { it.text } ?: ""
 }

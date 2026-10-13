@@ -174,4 +174,47 @@ class SottoLogicTest {
         assertTrue(f[75]) // 1.5 s: tone
         assertFalse(f[10]) // 0.2 s: background
     }
+
+    // ---------- backups
+    @Test fun backupRoundTripAndWrongPassword() {
+        val data = ByteArray(2_500_000) { (it * 31 % 251).toByte() } // spans three 1 MB chunks
+        val enc = java.io.ByteArrayOutputStream()
+        com.example.watchscribe.mobile.data.BackupCrypto.encrypt(data.inputStream(), enc, "secret".toCharArray(), iterations = 1_000)
+        val out = java.io.ByteArrayOutputStream()
+        com.example.watchscribe.mobile.data.BackupCrypto.decrypt(enc.toByteArray().inputStream(), out, "secret".toCharArray())
+        assertTrue(data.contentEquals(out.toByteArray()))
+        val wrong = runCatching {
+            com.example.watchscribe.mobile.data.BackupCrypto.decrypt(enc.toByteArray().inputStream(), java.io.ByteArrayOutputStream(), "nope".toCharArray())
+        }.exceptionOrNull()
+        assertTrue(wrong is com.example.watchscribe.mobile.data.BackupCrypto.WrongPassword)
+        val cut = enc.toByteArray().copyOf(enc.size() - 40)
+        assertTrue(runCatching {
+            com.example.watchscribe.mobile.data.BackupCrypto.decrypt(cut.inputStream(), java.io.ByteArrayOutputStream(), "secret".toCharArray())
+        }.isFailure)
+    }
+
+    // ---------- people
+    @Test fun recognisesKnownVoices() {
+        fun v(vararg x: Float) = x
+        val people = listOf(
+            com.example.watchscribe.mobile.data.People.Person("1", "Me", v(1f, 0f, 0f), 3),
+            com.example.watchscribe.mobile.data.People.Person("2", "Anna", v(0f, 1f, 0f), 2),
+        )
+        val names = com.example.watchscribe.mobile.data.People.match(listOf(v(0.1f, 0.9f, 0.1f), v(0.9f, 0.2f, 0f), v(0f, 0f, 1f)), people)
+        assertEquals(listOf("Anna", "Me", null), names)
+        // one person is never given to two speakers
+        assertEquals(listOf("Me", null), com.example.watchscribe.mobile.data.People.match(listOf(v(1f, 0f, 0f), v(0.95f, 0.1f, 0f)), people))
+    }
+
+    // ---------- hiding personal details when sharing
+    @Test fun hidesPersonalDetails() {
+        fun r(s: String) = com.example.watchscribe.mobile.data.Redact.text(s)
+        assertEquals("Call me at [number] or [number].", r("Call me at +48 601 234 567 or 601-234-567."))
+        assertEquals("Mail [email] now", r("Mail anna.kowalska@firma.pl now"))
+        assertEquals("IBAN [IBAN] please", r("IBAN PL61 1090 1014 0000 0712 1981 2874 please"))
+        assertEquals("PESEL [number]", r("PESEL 85010112345"))
+        // dates, times and amounts stay
+        assertEquals("Meeting 2026-10-13 14:30, budget 1 000 000 zł", r("Meeting 2026-10-13 14:30, budget 1 000 000 zł"))
+        assertEquals("13.10.2026 15:00, 12 people", r("13.10.2026 15:00, 12 people"))
+    }
 }

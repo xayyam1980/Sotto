@@ -142,6 +142,8 @@ fun PhoneMicCard() {
             Column(Modifier.weight(1f)) {
                 Text("Recording with phone", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 if (live.mic.isNotBlank()) Text("Mic: ${live.mic}", fontSize = 12.sp, color = Palette.Muted, maxLines = 1)
+                if (live.silenced) Text("Another app (e.g. Google Translate) is using the mic. Recording continues when it's free; the watch can record meanwhile.", fontSize = 12.sp, color = Palette.Amber)
+                else if (live.note.isNotBlank()) Text(live.note, fontSize = 12.sp, color = Palette.Muted)
             }
             Text("%d:%02d".format(sec / 60, sec % 60), fontSize = 20.sp, fontFamily = FontFamily.Monospace, color = Palette.Live)
         }

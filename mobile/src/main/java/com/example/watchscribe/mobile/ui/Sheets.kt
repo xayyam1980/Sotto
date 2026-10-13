@@ -136,7 +136,8 @@ fun ExportSheet(
     onDismiss: () -> Unit,
     onSend: (Dest, ExportOptions) -> Unit,
 ) {
-    var opt by remember { mutableStateOf(ExportOptions()) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var opt by remember { mutableStateOf(ExportOptions(hidePersonal = com.example.watchscribe.mobile.data.Redact.on(ctx))) }
     val bytes = Exporter.estimateBytes(recs, opt)
     val size = if (bytes > 1_000_000) "%.1f MB".format(bytes / 1_000_000.0) else "${(bytes / 1000).coerceAtLeast(1)} KB"
     val totalMin = (recs.sumOf { it.seconds } / 60).toInt()
@@ -180,6 +181,18 @@ fun ExportSheet(
                     Pill("Clean · WAV", opt.cleanAudio, { opt = opt.copy(cleanAudio = true) })
                     Spacer(Modifier.size(6.dp))
                     Pill("Original · WAV", !opt.cleanAudio, { opt = opt.copy(cleanAudio = false) })
+                }
+                Row(
+                    Modifier.fillMaxWidth().height(56.dp).toggleable(value = opt.hidePersonal, onValueChange = {
+                        opt = opt.copy(hidePersonal = it); com.example.watchscribe.mobile.data.Redact.setOn(ctx, it)
+                    }, role = Role.Switch),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Hide personal details", fontSize = 14.sp)
+                        Text("E-mails, IBANs, phone and card numbers become [email], [IBAN], [number]", fontSize = 12.sp, color = Palette.Muted)
+                    }
+                    Switch(checked = opt.hidePersonal, onCheckedChange = null)
                 }
                 if (recs.size > 1) Row(
                     Modifier.fillMaxWidth().height(44.dp)

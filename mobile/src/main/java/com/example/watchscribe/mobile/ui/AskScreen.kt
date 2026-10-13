@@ -81,7 +81,7 @@ private fun pick(all: List<Recording>, q: String, max: Int = 12): List<Recording
 private fun noteText(r: Recording) = buildString {
     append("${r.title} — ${when_.format(Date(r.start))}, ${r.placeOrUnknown}\n")
     r.summary?.let { append("Summary: $it\n") }
-    append(r.segments!!.joinToString(" ") { s -> (s.speaker?.let { "S${it + 1}: " } ?: "") + s.text }.take(3_000))
+    append(r.segments!!.joinToString(" ") { s -> (r.who(s.speaker)?.let { "$it: " } ?: "") + s.text }.take(3_000))
 }
 
 @OptIn(ExperimentalLayoutApi::class)

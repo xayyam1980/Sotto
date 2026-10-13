@@ -38,7 +38,11 @@ import kotlin.math.sqrt
  */
 class PhoneRecorder : Service() {
 
-    data class Live(val running: Boolean = false, val startedAt: Long = 0, val level: Float = 0f, val marks: Int = 0, val mic: String = "")
+    data class Live(
+        val running: Boolean = false, val startedAt: Long = 0, val level: Float = 0f, val marks: Int = 0, val mic: String = "",
+        val note: String = "",          // why a different mic than chosen is used
+        val silenced: Boolean = false,  // another app (e.g. Google Translate) has taken the microphone
+    )
 
     /** A microphone the phone can record from. id = 0 means the phone's own mic. */
     data class Input(val id: Int, val label: String, val type: Int)
@@ -119,6 +123,7 @@ class PhoneRecorder : Service() {
         running = true
         wake = (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Sotto:phonemic").apply { acquire(4 * 3600_000L) }
         _live.value = Live(running = true, startedAt = System.currentTimeMillis())
+        runCatching { SottoWidget.update(this) }
         val input = intent?.getIntExtra(EXTRA_INPUT, 0) ?: 0
         worker = Thread({ record(input) }, "phone-mic").apply { start() }
         return START_NOT_STICKY
@@ -129,8 +134,14 @@ class PhoneRecorder : Service() {
         val am = getSystemService(AudioManager::class.java)
         val chosen = (am.getDevices(AudioManager.GET_DEVICES_INPUTS).toList() + am.availableCommunicationDevices)
             .firstOrNull { it.id == inputId && it.type != AudioDeviceInfo.TYPE_BUILTIN_MIC }
-        // Bluetooth headset mics only work in "call" mode: route the phone's communication audio to the headset.
-        val bluetooth = chosen != null && chosen.type in BLUETOOTH_TYPES
+        // Bluetooth headset mics only work in "call" mode, which drops music and live translation in the
+        // earbuds to phone-call quality and fights with them over the mic. While the earbuds are busy, use the phone's mic.
+        val earbudsBusy = am.isMusicActive || am.mode == AudioManager.MODE_IN_COMMUNICATION || am.mode == AudioManager.MODE_IN_CALL ||
+            am.activeRecordingConfigurations.isNotEmpty()
+        val wantsBluetooth = chosen != null && chosen.type in BLUETOOTH_TYPES
+        val bluetooth = wantsBluetooth && !earbudsBusy
+        if (wantsBluetooth && !bluetooth)
+            _live.value = _live.value.copy(note = "Earbuds are playing or in use, so the phone's mic records and your audio keeps its quality")
         if (bluetooth) {
             val target = am.availableCommunicationDevices.firstOrNull { it.type == chosen!!.type && it.address == chosen.address }
                 ?: am.availableCommunicationDevices.firstOrNull { it.type == chosen!!.type }
@@ -147,6 +158,17 @@ class PhoneRecorder : Service() {
         }
         if (chosen != null && !bluetooth) rec.preferredDevice = chosen // wired / USB headset
         var lastRouteCheck = 0L
+        // Android lets one app hear the mic at a time; notice when another app takes it
+        val silenceWatch = object : AudioManager.AudioRecordingCallback() {
+            override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) {
+                val mine = configs.firstOrNull { it.clientAudioSessionId == rec.audioSessionId } ?: return
+                if (mine.isClientSilenced != _live.value.silenced) {
+                    _live.value = _live.value.copy(silenced = mine.isClientSilenced)
+                    getSystemService(NotificationManager::class.java).notify(NOTIF, notification(mine.isClientSilenced))
+                }
+            }
+        }
+        am.registerAudioRecordingCallback(silenceWatch, null)
         val ns = runCatching { if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true } else null }.getOrNull()
         val buf = ShortArray(RATE / 10) // 100 ms
         var piece: Piece? = null
@@ -156,6 +178,7 @@ class PhoneRecorder : Service() {
             while (running) {
                 val n = rec.read(buf, 0, buf.size)
                 if (n <= 0) continue
+                if (_live.value.silenced) { _live.value = _live.value.copy(level = 0f); continue } // nothing to keep while another app has the mic
                 piece!!.write(buf, n)
                 pieceSeconds = piece.seconds
                 var s = 0.0
@@ -176,6 +199,7 @@ class PhoneRecorder : Service() {
         } catch (t: Throwable) {
             Log.e(TAG, "Recording failed", t)
         } finally {
+            runCatching { am.unregisterAudioRecordingCallback(silenceWatch) }
             runCatching { rec.stop() }
             rec.release()
             ns?.release()
@@ -209,6 +233,7 @@ class PhoneRecorder : Service() {
     private fun finishService() {
         running = false
         _live.value = Live()
+        runCatching { SottoWidget.update(this) }
         runCatching { wake?.release() }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -220,15 +245,15 @@ class PhoneRecorder : Service() {
         super.onDestroy()
     }
 
-    private fun notification(): Notification {
+    private fun notification(silenced: Boolean = false): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Phone microphone", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, PhoneRecorder::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
-            .setContentTitle("Recording with the phone")
-            .setContentText("Sotto · tap to open")
+            .setContentTitle(if (silenced) "Microphone in use by another app" else "Recording with the phone")
+            .setContentText(if (silenced) "Sotto continues when it's free. Tip: record with the watch instead." else "Sotto · tap to open")
             .setUsesChronometer(true)
             .setWhen(System.currentTimeMillis())
             .setOngoing(true)

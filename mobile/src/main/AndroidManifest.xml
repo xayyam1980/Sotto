@@ -65,6 +65,26 @@
         </service>
 
         <!-- Recording with the phone's own microphone -->
+        <!-- Home-screen widget -->
+        <receiver
+            android:name=".SottoWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/sotto_widget" />
+        </receiver>
+
+        <activity
+            android:name=".WidgetRecordActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".PhoneRecorder"
             android:exported="false"

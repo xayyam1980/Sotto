@@ -30,7 +30,7 @@ import kotlin.math.sqrt
  *  - Parakeet v3 (fast, accurate, European languages) or Whisper turbo (all languages), set in Settings
  *  - Whisper: if it guesses a language outside the allowed list, redo in the first one
  *  - drop/redo pieces where it loops ("что я не знаю, что я не знаю…")
- *  - speakers: pyannote turns + voice fingerprints, number of people found automatically;
+ *  - speakers: Reverb (pyannote-based) turns + WeSpeaker voice fingerprints, number of people found automatically;
  *    each turn is transcribed separately so lines don't mix people
  */
 class Transcriber(private val ctx: Context) : AutoCloseable {
@@ -68,7 +68,13 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         }
     }
 
-    data class Result(val lang: String, val segments: List<Seg>, val speakers: Int, val speakerError: String? = null)
+    data class Result(
+        val lang: String, val segments: List<Seg>, val speakers: Int, val speakerError: String? = null,
+        val voices: List<FloatArray> = emptyList(), // voice fingerprint per speaker (S1, S2…); empty = unknown
+    )
+
+    /** Voice fingerprint per cluster from the last diarize(), for recognising people. */
+    private var lastCentroids: List<FloatArray> = emptyList()
 
     private fun recognizer(lang: String): OfflineRecognizer = recognizers.getOrPut(lang) {
         OfflineRecognizer(
@@ -117,7 +123,7 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
 
         var spkError: String? = null
         val turns: List<Turn>? = when {
-            !Models.isReady(ctx, ModelId.SPEAKERS) || !Models.isReady(ctx, ModelId.VOICES) -> { spkError = "Speaker models not downloaded"; null }
+            !Models.isReady(ctx, ModelId.DIARIZER) || !Models.isReady(ctx, ModelId.VOICEPRINT) -> { spkError = "Speaker models not downloaded"; null }
             else -> try {
                 diarize(x, numSpeakers).ifEmpty { spkError = "No voices found"; null }
             } catch (t: Throwable) {
@@ -161,15 +167,18 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
         segs.forEach { s -> s.speaker?.let { if (it !in order) order[it] = order.size } }
         val out = segs.map { s -> s.copy(speaker = s.speaker?.let { order[it] }) }
         onProgress(1f)
-        return Result(langTime.maxByOrNull { it.value }?.key ?: fallback, out, order.size, spkError)
+        val byIndex = order.entries.associate { (label, idx) -> idx to label }
+        val voices = List(order.size) { idx -> byIndex[idx]?.let { lastCentroids.getOrNull(it) } ?: FloatArray(0) }
+        return Result(langTime.maxByOrNull { it.value }?.key ?: fallback, out, order.size, spkError, voices)
     }
 
     /**
-     * Finds who speaks when. pyannote finds the turns; each turn gets a voice fingerprint and the
+     * Finds who speaks when. the speaker model finds the turns; each turn gets a voice fingerprint and the
      * fingerprints are grouped. With [numSpeakers] <= 0 the number of people is chosen by how
      * clearly the voices separate (see [cluster]).
      */
     private fun diarize(x: FloatArray, numSpeakers: Int): List<Turn> {
+        lastCentroids = emptyList()
         val sd = OfflineSpeakerDiarization(
             config = OfflineSpeakerDiarizationConfig(
                 segmentation = OfflineSpeakerSegmentationModelConfig(
@@ -213,13 +222,14 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             // A "turn" can still hold two people when they answer each other quickly.
             // Listen through every longer turn in short windows and cut it where the voice changes.
             val c = labels.max() + 1
-            if (c < 2) return turns
             val centroids = (0 until c).map { g ->
                 val dim = emb[0].size
                 val m = FloatArray(dim)
                 emb.forEachIndexed { i, e -> if (labels[i] == g) { val u = unit(e); val wt = (long[i].b - long[i].a).toFloat(); for (d in 0 until dim) m[d] += u[d] * wt } }
                 unit(m)
             }
+            lastCentroids = centroids
+            if (c < 2) return turns
             return splitAtVoiceChanges(turns, x, ext, centroids)
         } finally { ext.release() }
     }

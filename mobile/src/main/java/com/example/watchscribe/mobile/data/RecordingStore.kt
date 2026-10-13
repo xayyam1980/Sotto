@@ -31,6 +31,7 @@ object RecordingStore {
     fun refresh(ctx: Context) {
         val files = chunkDir(ctx).listFiles { f -> f.name.endsWith(".wav") }.orEmpty()
         _items.value = files.map { load(ctx, it) }.sortedByDescending { it.start }
+        runCatching { com.example.watchscribe.mobile.SottoWidget.update(ctx) }
     }
 
     private fun load(ctx: Context, f: File): Recording {
@@ -86,6 +87,8 @@ object RecordingStore {
             speakers = tr?.optInt("speakers", 0) ?: 0,
             speakerError = tr?.optString("spkErr", "")?.ifBlank { null },
             redo = if (meta.has("redo")) meta.getInt("redo") else null,
+            names = tr?.optJSONArray("names")?.let { a -> List(a.length()) { if (a.isNull(it)) null else a.optString(it).ifBlank { null } } } ?: emptyList(),
+            audioDeleted = meta.optBoolean("audioDeleted", false),
         )
     }
 
@@ -106,14 +109,29 @@ object RecordingStore {
         refresh(ctx)
     }
 
-    fun setTranscript(ctx: Context, id: String, lang: String, segments: List<Seg>, speakers: Int, speakerError: String? = null) {
+    fun setTranscript(
+        ctx: Context, id: String, lang: String, segments: List<Seg>, speakers: Int, speakerError: String? = null,
+        voices: List<FloatArray>? = null,
+    ) {
         val arr = JSONArray()
         segments.forEach { s ->
             arr.put(JSONObject().put("t0", s.t0).put("t1", s.t1).put("text", s.text).apply { s.speaker?.let { put("spk", it) } })
         }
+        val names = voices?.let { People.names(ctx, it) }
         editMeta(ctx, id) { m ->
             m.put("transcript", JSONObject().put("lang", lang).put("segments", arr).put("speakers", speakers)
-                .apply { if (speakerError != null) put("spkErr", speakerError) })
+                .apply { if (speakerError != null) put("spkErr", speakerError) }
+                .apply {
+                    if (voices != null) {
+                        put("voices", JSONArray().apply { voices.forEach { v -> put(JSONArray().apply { v.forEach { put(it.toDouble()) } }) } })
+                        put("names", JSONArray().apply { names!!.forEach { put(it ?: JSONObject.NULL) } })
+                    } else m.optJSONObject("transcript")?.let { old ->
+                        // keep known people when only the text changes
+                        old.optJSONArray("voices")?.let { put("voices", it) }
+                        old.optJSONArray("names")?.let { put("names", it) }
+                        old.optJSONArray("manual")?.let { put("manual", it) }
+                    }
+                })
             m.remove("sync")
             m.remove("redo")
         }
@@ -128,6 +146,73 @@ object RecordingStore {
 
     fun clearRedo(ctx: Context, id: String) {
         editMeta(ctx, id) { it.remove("redo") }
+        refresh(ctx)
+    }
+
+    /** Voice fingerprints of a note's speakers (S1, S2…), if known. */
+    fun voices(ctx: Context, id: String): List<FloatArray> {
+        val f = File(metaDir(ctx), "$id.json")
+        val a = runCatching { JSONObject(f.readText()).optJSONObject("transcript")?.optJSONArray("voices") }.getOrNull() ?: return emptyList()
+        return List(a.length()) { i -> a.getJSONArray(i).let { v -> FloatArray(v.length()) { v.getDouble(it).toFloat() } } }
+    }
+
+    /**
+     * The user says who a speaker is ("S2 is Anna"). Learns the voice, then names that person
+     * in every other note where they were not named yet.
+     */
+    fun setSpeakerName(ctx: Context, id: String, spk: Int, name: String?) {
+        val voice = voices(ctx, id).getOrNull(spk)
+        editMeta(ctx, id) { m ->
+            val tr = m.optJSONObject("transcript") ?: return@editMeta
+            val n = tr.optInt("speakers", 0).coerceAtLeast(spk + 1)
+            val old = tr.optJSONArray("names")
+            val names = JSONArray().apply { for (i in 0 until n) put(if (i == spk) (name?.trim()?.ifBlank { null } ?: JSONObject.NULL) else old?.opt(i) ?: JSONObject.NULL) }
+            tr.put("names", names)
+            val manual = (tr.optJSONArray("manual")?.let { a -> List(a.length()) { a.getInt(it) } } ?: emptyList()).toMutableSet().apply { add(spk) }
+            tr.put("manual", JSONArray(manual.toList()))
+        }
+        if (name != null && voice != null && voice.isNotEmpty()) {
+            People.teach(ctx, name, voice)
+            rematchAll(ctx)
+        } else refresh(ctx)
+    }
+
+    /** Re-applies the known people to every note (names the user set by hand stay). */
+    fun rematchAll(ctx: Context) {
+        val people = People.load(ctx)
+        metaDir(ctx).listFiles { f -> f.name.endsWith(".json") }.orEmpty().forEach { f ->
+            runCatching {
+                val m = JSONObject(f.readText())
+                val tr = m.optJSONObject("transcript") ?: return@runCatching
+                val va = tr.optJSONArray("voices") ?: return@runCatching
+                val voices = List(va.length()) { i -> va.getJSONArray(i).let { v -> FloatArray(v.length()) { v.getDouble(it).toFloat() } } }
+                val manual = tr.optJSONArray("manual")?.let { a -> List(a.length()) { a.getInt(it) }.toSet() } ?: emptySet()
+                val old = tr.optJSONArray("names")
+                val auto = People.match(voices, people)
+                val names = JSONArray().apply {
+                    voices.indices.forEach { i -> put(if (i in manual) old?.opt(i) ?: JSONObject.NULL else auto[i] ?: JSONObject.NULL) }
+                }
+                tr.put("names", names)
+                f.writeText(m.toString())
+            }
+        }
+        refresh(ctx)
+    }
+
+    /**
+     * Deletes the audio of transcribed notes older than [days] days; the transcript, summary and
+     * a tiny silent placeholder stay, so the note keeps its place in the list. 0 = keep forever.
+     */
+    fun deleteOldAudio(ctx: Context, days: Int) {
+        if (days <= 0) return
+        val cutoff = System.currentTimeMillis() - days * 86_400_000L
+        _items.value.filter { it.start < cutoff && it.segments != null && !it.audioDeleted && it.redo == null }.forEach { r ->
+            runCatching {
+                r.raw?.delete()
+                r.clean.writeBytes(Wav.header(16_000, 0)) // empty placeholder keeps the note listed
+                editMeta(ctx, r.id) { it.put("audioDeleted", true) }
+            }
+        }
         refresh(ctx)
     }
 

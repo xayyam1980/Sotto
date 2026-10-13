@@ -249,6 +249,8 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
                 }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.OnAccent))
             }
 
+            MoreSettings()
+
             Section("Redo")
             TextButton(onClick = {
                 scope.launch(Dispatchers.IO) {

@@ -27,7 +27,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AddTask
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Pause
@@ -88,6 +90,7 @@ fun RecordingScreen(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var renaming by remember { mutableStateOf(false) }
     var seekReq by remember { mutableStateOf<Int?>(null) }
+    var naming by remember { mutableStateOf<Int?>(null) }
 
     Scaffold(
         containerColor = Palette.Ground,
@@ -102,7 +105,12 @@ fun RecordingScreen(
                 IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Delete") }
             }
         },
-        bottomBar = { Player(r, seekReq) { seekReq = null } },
+        bottomBar = {
+            if (r.audioDeleted) Text(
+                "The audio was deleted to save space (Settings → Keep audio). The text stays.",
+                fontSize = 13.sp, color = Palette.Muted, modifier = Modifier.navigationBarsPadding().padding(20.dp),
+            ) else Player(r, seekReq) { seekReq = null }
+        },
     ) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(horizontal = 20.dp).verticalScroll(rememberScrollState()),
@@ -134,7 +142,7 @@ fun RecordingScreen(
             val segs = r.segments
             if (tab == 1 && !segs.isNullOrEmpty()) {
                 Text(
-                    "${langName(r.lang)} · ${r.transcriptText.split(Regex("\\s+")).size} words · tap a line to play from there",
+                    "${langName(r.lang)} · ${r.transcriptText.split(Regex("\\s+")).size} words · tap a line to play, tap a name to say who it is",
                     fontSize = 12.sp, color = Palette.Muted,
                 )
                 SpeakerControl(r)
@@ -149,7 +157,14 @@ fun RecordingScreen(
                     ) {
                         Column(Modifier.width(52.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(Exporter.stamp(sg.t0), fontSize = 12.sp, color = Palette.Accent, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 3.dp))
-                            sg.speaker?.let { Text("S${it + 1}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Palette.PlaceTints[it % Palette.PlaceTints.size]) }
+                            sg.speaker?.let { spk ->
+                                Text(
+                                    r.who(spk)!!, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    color = Palette.PlaceTints[spk % Palette.PlaceTints.size],
+                                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { naming = spk },
+                                )
+                            }
                         }
                         Text(sg.text, fontSize = 15.sp, lineHeight = 22.sp, color = Color(0xFFDDE1E5), modifier = Modifier.weight(1f))
                     }
@@ -161,7 +176,10 @@ fun RecordingScreen(
                 ) {
                     SectionLabel("Summary")
                     Text(r.summary, fontSize = 15.sp, lineHeight = 22.sp, color = Color(0xFFDDE1E5))
-                    if (r.speakers > 0) Text("${r.speakers} ${if (r.speakers == 1) "speaker" else "speakers"} · ${langName(r.lang)}", fontSize = 12.sp, color = Palette.Muted)
+                    if (r.speakers > 0) Text(
+                        (0 until r.speakers).joinToString(", ") { r.who(it)!! } + " · ${langName(r.lang)}",
+                        fontSize = 12.sp, color = Palette.Muted,
+                    )
                 }
                 if (!r.segments.isNullOrEmpty()) SpeakerControl(r)
                 if (r.actions.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -172,7 +190,8 @@ fun RecordingScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text("•", color = Palette.Amber, fontSize = 15.sp)
-                            Text(a, fontSize = 14.sp, lineHeight = 20.sp)
+                            Text(a, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+                            ActionButtons(r, a)
                         }
                     }
                 }
@@ -208,6 +227,8 @@ fun RecordingScreen(
             Spacer(Modifier.height(12.dp))
         }
     }
+
+    naming?.let { spk -> NameSpeakerDialog(r, spk) { naming = null } }
 
     if (renaming) {
         var text by remember { mutableStateOf(if (r.customTitle) r.title else "") }
@@ -331,6 +352,7 @@ private fun SmallPillButton(label: String, color: androidx.compose.ui.graphics.C
  */
 @Composable
 private fun SpeakerControl(r: com.example.watchscribe.mobile.data.Recording) {
+    if (r.audioDeleted) return
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val jobs by com.example.watchscribe.mobile.ai.ProcessWorker.jobs.collectAsState()
     val busy = r.redo != null || jobs.containsKey(r.id)
@@ -365,5 +387,78 @@ private fun SpeakerControl(r: com.example.watchscribe.mobile.data.Recording) {
             r.speakers <= 1 -> Text("One voice found. If more people spoke, tap how many.", fontSize = 12.sp, color = Palette.Muted)
             else -> Text("Speakers found automatically. Wrong? Tap the right number.", fontSize = 12.sp, color = Palette.Muted)
         }
+    }
+}
+
+/** "Who is S2?": pick Me, a known person, or type a name. Sotto then recognises that voice in other notes. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NameSpeakerDialog(r: Recording, spk: Int, onDone: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val people by com.example.watchscribe.mobile.data.People.all.collectAsState()
+    LaunchedEffect(Unit) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.example.watchscribe.mobile.data.People.load(ctx) } }
+    var text by remember { mutableStateOf("") }
+    fun pick(name: String?) {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) { com.example.watchscribe.mobile.data.RecordingStore.setSpeakerName(ctx, r.id, spk, name) }
+        onDone()
+    }
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text("Who is ${r.who(spk)}?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Sotto learns this voice on your phone and names this person in other notes too.", fontSize = 13.sp, color = Palette.Muted)
+                val known = (listOf(com.example.watchscribe.mobile.data.People.ME) + people.map { it.name }).distinct()
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    known.forEach { n ->
+                        Text(
+                            n, fontSize = 13.sp, color = Palette.Accent,
+                            modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Palette.AccentContainer)
+                                .clickable { pick(n) }.padding(horizontal = 12.dp, vertical = 7.dp),
+                        )
+                    }
+                }
+                OutlinedTextField(text, { text = it }, singleLine = true, placeholder = { Text("Another name") })
+            }
+        },
+        confirmButton = { TextButton(onClick = { if (text.isNotBlank()) pick(text) }, enabled = text.isNotBlank()) { Text("Save") } },
+        dismissButton = {
+            Row {
+                if (r.names.getOrNull(spk) != null) TextButton(onClick = { pick(null) }) { Text("Forget name") }
+                TextButton(onClick = onDone) { Text("Cancel") }
+            }
+        },
+        containerColor = Palette.Surface,
+    )
+}
+
+/** Puts an action item in the calendar or a to-do app (Google Tasks, Todoist… via Share). */
+@Composable
+private fun ActionButtons(r: Recording, item: String) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    IconButton(onClick = {
+        // Tomorrow 9:00 as a starting point; the calendar app lets you change it before saving
+        val start = java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0)
+        }.timeInMillis
+        val i = android.content.Intent(android.content.Intent.ACTION_INSERT, android.provider.CalendarContract.Events.CONTENT_URI)
+            .putExtra(android.provider.CalendarContract.Events.TITLE, item)
+            .putExtra(android.provider.CalendarContract.Events.DESCRIPTION, "From the note “${r.title}” in Sotto")
+            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
+            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, start + 30 * 60_000L)
+        runCatching { ctx.startActivity(i) }.onFailure {
+            android.widget.Toast.makeText(ctx, "No calendar app found", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }, modifier = Modifier.size(32.dp)) {
+        Icon(Icons.Rounded.Event, "Add to calendar", Modifier.size(18.dp), tint = Palette.Muted)
+    }
+    IconButton(onClick = {
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(android.content.Intent.EXTRA_SUBJECT, item)
+            .putExtra(android.content.Intent.EXTRA_TEXT, item)
+        ctx.startActivity(android.content.Intent.createChooser(send, "Add to tasks"))
+    }, modifier = Modifier.size(32.dp)) {
+        Icon(Icons.Rounded.AddTask, "Add to a to-do app", Modifier.size(18.dp), tint = Palette.Muted)
     }
 }

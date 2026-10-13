@@ -8,7 +8,7 @@ Sotto turns a Wear OS watch into an always-on, speech-only note taker.
 The watch records when people talk. The phone turns each recording into a transcript with speakers, a summary and action items.
 **Everything runs on your own devices. No account, no subscription, no cloud.**
 
-Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) · Phone app 1.2 · Watch app 1.0
+Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) · Phone app 1.3 · Watch app 1.0
 
 | Notes | A note | Watch control |
 |---|---|---|
@@ -34,6 +34,13 @@ Created by **Khayyam Bayramov** · [xayyam@gmail.com](mailto:xayyam@gmail.com) �
 - **Notes**: all recordings, grouped by day or place, with search, filters, star, rename, delete (with undo) and multi-select.
 - **Summary of the day**: tap **⋮** next to a day for a digest of all its notes: overview, decisions, to-dos, people. It works for a selection of notes too.
 - **Delete a whole day** from the same **⋮** menu, or select notes and tap **Delete**.
+- **People**: tap a speaker (S1, S2) in a transcript and say who it is ("Me", "Anna"). Sotto learns the voice on the phone and names that person in every note, in summaries, and in Ask.
+- **Action items to your calendar or to-do app**: each action item has a calendar button and an "add to tasks" button (Google Tasks, Todoist… via Share).
+- **Weekly summary**: on Friday afternoon a notification offers a summary of the week. It's also in the **⋮** menu any time.
+- **Keep audio**: delete the audio of old notes after 7, 30 or 90 days and keep the text. This saves space and keeps less personal data.
+- **Home-screen widget**: one-tap **Record** with the phone, and your three latest notes. With App lock on, note titles are hidden.
+- **Hide personal details when sharing**: in Export, one switch turns e-mails, IBANs and phone, card or ID numbers into [email], [IBAN], [number]. It also applies to Share and "Open in Claude / Gemini". Notes on the phone stay unchanged.
+- **Encrypted backup**: one password-protected file (AES-256) with all notes, to keep wherever you like and restore on a new phone.
 - **Transcripts with speakers** (S1, S2…). Tap a line to play from that moment. Marks from the watch are highlighted.
   The number of people is found automatically. If it's wrong, tap the right number on the note.
 - **Progress on every note**: "Transcribing 42%" and "Summarising…" show on the note itself.
@@ -63,7 +70,7 @@ The phone app also works **without a watch**, using **Record with phone**.
 ## Install
 
 ### 1. Phone
-1. Copy **`Sotto-phone-1.2.apk`** to the phone (Drive, e-mail, USB cable…).
+1. Copy **`Sotto-phone-1.3.apk`** to the phone (Drive, e-mail, USB cable…).
 2. Open it. If Android asks, allow **Install unknown apps** for that app once.
 3. Open **Sotto** and allow notifications, location (optional, for Places) and the microphone when asked.
 
@@ -90,7 +97,7 @@ If you do uninstall, Android asks **"Keep app data?"**. Tick it, and the notes a
 ### 3. One-time AI setup (on the phone, Wi-Fi)
 On the **Notes** screen, the **AI card** shows **Download**. It fetches the models once, about 3.1 GB:
 - **Parakeet v3** for transcription: fast and accurate for English, Polish, Russian, Ukrainian, German, French and 19 more European languages. For other languages (such as Azerbaijani or Turkish), choose **Whisper turbo** in Settings.
-- **Speaker detection** to tell who is speaking
+- **Speaker detection** ([Reverb diarization v1](https://huggingface.co/Revai/reverb-diarization-v1) by Rev) and **voice fingerprints** ([WeSpeaker](https://github.com/wenet-e2e/wespeaker) CAM++) to tell who is speaking
 - **Gemma 4 E2B** for summaries and Ask; **E4B** in Settings is slower but better
 
 Downloads continue in the background, over Wi-Fi only.
@@ -111,6 +118,10 @@ Downloads continue in the background, over Wi-Fi only.
 | Send a note to someone | Open the note → **Share**, or long-press notes → **Export** |
 | Summarise a day | Next to the day's name, **⋮ → Summary of the day** |
 | Delete a day | **⋮ → Delete the day…** (Undo appears for a few seconds) |
+| Teach Sotto who someone is | In a transcript, tap **S1/S2** → **Me** or a name |
+| Record from the home screen | Long-press the home screen → **Widgets → Sotto**, then tap **● Record** |
+| Send a summary to a client safely | Export → turn on **Hide personal details** |
+| Back up everything | Settings → **Backup → Back up…**, choose a password and a place to save |
 | Get a deeper analysis | Open the note → **Open in Claude** / **Open in Gemini** |
 
 **Tip:** leave the phone on the charger overnight and every note of the day is transcribed and summarised by morning.
@@ -147,6 +158,7 @@ Downloads continue in the background, over Wi-Fi only.
 | "Start listening" from the phone shows a prompt on the watch | Android lets only the watch itself switch its microphone on after a restart. Tap **Start** once on the watch. |
 | Notes not transcribed | Models downloaded? Phone charging (or tap **Now**)? |
 | Two people, but only S1 | Open the note and tap **Speakers → 2**. Speaker labels are per note; S1 in one note isn't necessarily S1 in another. |
+| Music or Google Translate in my earbuds while recording | Earbud mics only work in "call mode", which lowers music to call quality and competes with Translate for the mic. If the earbuds are busy when you start, Sotto records with the phone's mic instead. If another app takes the mic, Sotto pauses and says so. Best: record with the **watch**, which has its own mic. |
 | Models download again after reinstalling | Install updates over the old app instead of uninstalling (see *Updating*). |
 | Lots of "Unknown place" | Allow location **all the time**. GPS may not get a fix indoors. |
 
@@ -166,6 +178,7 @@ Downloads continue in the background, over Wi-Fi only.
   - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for Parakeet, Whisper and speaker detection
   - [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) for Gemma
   - [MapLibre](https://maplibre.org) with [OpenFreeMap](https://openfreemap.org) for the map
+- AI models are downloaded from their publishers and keep their own licenses: Parakeet v3 (NVIDIA, CC-BY-4.0), Whisper (OpenAI, MIT), Reverb diarization v1 (Rev, noncommercial license), WeSpeaker CAM++ (trained on VoxCeleb; check its terms for commercial use) and Gemma (Google, Gemma terms).
 
 ## License
 

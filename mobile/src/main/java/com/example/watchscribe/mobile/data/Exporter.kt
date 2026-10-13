@@ -39,6 +39,7 @@ data class ExportOptions(
     val cleanAudio: Boolean = true,
     val format: NoteFormat = NoteFormat.MARKDOWN,
     val onePerNote: Boolean = false,
+    val hidePersonal: Boolean = false, // blank out e-mails, IBANs, phone and card numbers
 )
 
 /** Builds export files in the cache and hands them to other apps. */
@@ -93,7 +94,7 @@ object Exporter {
             if (segs.isNullOrEmpty()) appendLine("_Not transcribed yet._")
             else segs.forEach { s ->
                 val marked = r.marks.any { it >= s.t0 - 1 && it < s.t1 }
-                appendLine("- `${stamp(s.t0)}` ${if (marked) "🔖 **" + s.text + "**" else s.text}")
+                appendLine("- `${stamp(s.t0)}` ${r.who(s.speaker)?.let { "**$it:** " } ?: ""}${if (marked) "🔖 **" + s.text + "**" else s.text}")
             }
         }
     }
@@ -129,10 +130,11 @@ object Exporter {
             line(r.title, title, 26f)
             line("${dayFmt.format(Date(r.start))} · ${length(r.seconds)} · ${r.placeOrUnknown}", body, 18f)
             y += 8
-            line("Summary: not summarised yet.", body, 16f)
+            line(r.summary?.let { "Summary: $it" } ?: "Summary: not summarised yet.", body, 16f)
+            r.actions.forEach { line("• $it", body, 16f) }
             val segs = r.segments
             if (segs.isNullOrEmpty()) line("Transcript: not transcribed yet.", body, 16f)
-            else segs.forEach { line("${stamp(it.t0)}  ${it.text}", body, 16f) }
+            else segs.forEach { line("${stamp(it.t0)}  ${r.who(it.speaker)?.let { w -> "$w: " } ?: ""}${it.text}", body, 16f) }
             y += 24
         }
         doc.finishPage(page)
@@ -156,7 +158,7 @@ object Exporter {
     fun build(ctx: Context, recs: List<Recording>, opt: ExportOptions): List<File> {
         val dir = File(ctx.cacheDir, "export").apply { deleteRecursively(); mkdirs() }
         val out = mutableListOf<File>()
-        val sorted = recs.sortedBy { it.start }
+        val sorted = (if (opt.hidePersonal) recs.map(Redact::recording) else recs).sortedBy { it.start }
         if (opt.notes) {
             if (opt.onePerNote || sorted.size == 1) {
                 sorted.forEach { r -> out += writeNotes(dir, listOf(r), opt.format, "${fileFmt.format(Date(r.start))} ${safe(r.title)}") }

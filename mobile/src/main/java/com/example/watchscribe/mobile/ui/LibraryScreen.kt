@@ -101,6 +101,12 @@ fun LibraryScreen(
     var digest by remember { mutableStateOf<Pair<String, List<Recording>>?>(null) }
     var deleting by remember { mutableStateOf<Pair<String, List<Recording>>?>(null) }
     var menuFor by remember { mutableStateOf<String?>(null) }
+    val request by Digests.request.collectAsState()
+    fun openWeek() {
+        val since = com.example.watchscribe.mobile.ai.Housekeeping.weekStart()
+        digest = "This week · summary" to all.filter { it.start >= since }
+    }
+    LaunchedEffect(request) { if (request == "week") { openWeek(); Digests.request.value = null } }
 
     Scaffold(
         containerColor = Palette.Ground,
@@ -172,6 +178,11 @@ fun LibraryScreen(
                                         text = { Text(if (isDay) "Summary of the day" else "Summary of these notes") },
                                         leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
                                         onClick = { menuFor = null; digest = "$label · summary" to list },
+                                    )
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text("Summary of this week") },
+                                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
+                                        onClick = { menuFor = null; openWeek() },
                                     )
                                     androidx.compose.material3.DropdownMenuItem(
                                         text = { Text("Select these notes") },

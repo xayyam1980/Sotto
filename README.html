@@ -16,7 +16,7 @@ blockquote{color:var(--muted);border-left:4px solid var(--line);margin:0;padding
 <p>Sotto turns a Wear OS watch into an always-on, speech-only note taker.
 The watch records when people talk. The phone turns each recording into a transcript with speakers, a summary and action items.
 <strong>Everything runs on your own devices. No account, no subscription, no cloud.</strong></p>
-<p>Created by <strong>Khayyam Bayramov</strong> · <a href="mailto:xayyam@gmail.com">xayyam@gmail.com</a> · Phone app 1.2 · Watch app 1.0</p>
+<p>Created by <strong>Khayyam Bayramov</strong> · <a href="mailto:xayyam@gmail.com">xayyam@gmail.com</a> · Phone app 1.3 · Watch app 1.0</p>
 <table>
 <thead>
 <tr>
@@ -59,6 +59,13 @@ The watch records when people talk. The phone turns each recording into a transc
 - <strong>Notes</strong>: all recordings, grouped by day or place, with search, filters, star, rename, delete (with undo) and multi-select.
 - <strong>Summary of the day</strong>: tap <strong>⋮</strong> next to a day for a digest of all its notes: overview, decisions, to-dos, people. It works for a selection of notes too.
 - <strong>Delete a whole day</strong> from the same <strong>⋮</strong> menu, or select notes and tap <strong>Delete</strong>.
+- <strong>People</strong>: tap a speaker (S1, S2) in a transcript and say who it is ("Me", "Anna"). Sotto learns the voice on the phone and names that person in every note, in summaries, and in Ask.
+- <strong>Action items to your calendar or to-do app</strong>: each action item has a calendar button and an "add to tasks" button (Google Tasks, Todoist… via Share).
+- <strong>Weekly summary</strong>: on Friday afternoon a notification offers a summary of the week. It's also in the <strong>⋮</strong> menu any time.
+- <strong>Keep audio</strong>: delete the audio of old notes after 7, 30 or 90 days and keep the text. This saves space and keeps less personal data.
+- <strong>Home-screen widget</strong>: one-tap <strong>Record</strong> with the phone, and your three latest notes. With App lock on, note titles are hidden.
+- <strong>Hide personal details when sharing</strong>: in Export, one switch turns e-mails, IBANs and phone, card or ID numbers into [email], [IBAN], [number]. It also applies to Share and "Open in Claude / Gemini". Notes on the phone stay unchanged.
+- <strong>Encrypted backup</strong>: one password-protected file (AES-256) with all notes, to keep wherever you like and restore on a new phone.
 - <strong>Transcripts with speakers</strong> (S1, S2…). Tap a line to play from that moment. Marks from the watch are highlighted.
   The number of people is found automatically. If it's wrong, tap the right number on the note.
 - <strong>Progress on every note</strong>: "Transcribing 42%" and "Summarising…" show on the note itself.
@@ -100,7 +107,7 @@ The watch records when people talk. The phone turns each recording into a transc
 <h2>Install</h2>
 <h3>1. Phone</h3>
 <ol>
-<li>Copy <strong><code>Sotto-phone-1.2.apk</code></strong> to the phone (Drive, e-mail, USB cable…).</li>
+<li>Copy <strong><code>Sotto-phone-1.3.apk</code></strong> to the phone (Drive, e-mail, USB cable…).</li>
 <li>Open it. If Android asks, allow <strong>Install unknown apps</strong> for that app once.</li>
 <li>Open <strong>Sotto</strong> and allow notifications, location (optional, for Places) and the microphone when asked.</li>
 </ol>
@@ -123,7 +130,7 @@ The watch records when people talk. The phone turns each recording into a transc
 <h3>3. One-time AI setup (on the phone, Wi-Fi)</h3>
 <p>On the <strong>Notes</strong> screen, the <strong>AI card</strong> shows <strong>Download</strong>. It fetches the models once, about 3.1 GB:
 - <strong>Parakeet v3</strong> for transcription: fast and accurate for English, Polish, Russian, Ukrainian, German, French and 19 more European languages. For other languages (such as Azerbaijani or Turkish), choose <strong>Whisper turbo</strong> in Settings.
-- <strong>Speaker detection</strong> to tell who is speaking
+- <strong>Speaker detection</strong> (<a href="https://huggingface.co/Revai/reverb-diarization-v1">Reverb diarization v1</a> by Rev) and <strong>voice fingerprints</strong> (<a href="https://github.com/wenet-e2e/wespeaker">WeSpeaker</a> CAM++) to tell who is speaking
 - <strong>Gemma 4 E2B</strong> for summaries and Ask; <strong>E4B</strong> in Settings is slower but better</p>
 <p>Downloads continue in the background, over Wi-Fi only.</p>
 <hr />
@@ -175,6 +182,22 @@ The watch records when people talk. The phone turns each recording into a transc
 <tr>
 <td>Delete a day</td>
 <td><strong>⋮ → Delete the day…</strong> (Undo appears for a few seconds)</td>
+</tr>
+<tr>
+<td>Teach Sotto who someone is</td>
+<td>In a transcript, tap <strong>S1/S2</strong> → <strong>Me</strong> or a name</td>
+</tr>
+<tr>
+<td>Record from the home screen</td>
+<td>Long-press the home screen → <strong>Widgets → Sotto</strong>, then tap <strong>● Record</strong></td>
+</tr>
+<tr>
+<td>Send a summary to a client safely</td>
+<td>Export → turn on <strong>Hide personal details</strong></td>
+</tr>
+<tr>
+<td>Back up everything</td>
+<td>Settings → <strong>Backup → Back up…</strong>, choose a password and a place to save</td>
 </tr>
 <tr>
 <td>Get a deeper analysis</td>
@@ -236,6 +259,10 @@ The watch records when people talk. The phone turns each recording into a transc
 <td>Open the note and tap <strong>Speakers → 2</strong>. Speaker labels are per note; S1 in one note isn't necessarily S1 in another.</td>
 </tr>
 <tr>
+<td>Music or Google Translate in my earbuds while recording</td>
+<td>Earbud mics only work in "call mode", which lowers music to call quality and competes with Translate for the mic. If the earbuds are busy when you start, Sotto records with the phone's mic instead. If another app takes the mic, Sotto pauses and says so. Best: record with the <strong>watch</strong>, which has its own mic.</td>
+</tr>
+<tr>
 <td>Models download again after reinstalling</td>
 <td>Install updates over the old app instead of uninstalling (see <em>Updating</em>).</td>
 </tr>
@@ -260,6 +287,7 @@ The watch records when people talk. The phone turns each recording into a transc
 <li><a href="https://github.com/k2-fsa/sherpa-onnx">sherpa-onnx</a> for Parakeet, Whisper and speaker detection</li>
 <li><a href="https://github.com/google-ai-edge/LiteRT-LM">LiteRT-LM</a> for Gemma</li>
 <li><a href="https://maplibre.org">MapLibre</a> with <a href="https://openfreemap.org">OpenFreeMap</a> for the map</li>
+<li>AI models are downloaded from their publishers and keep their own licenses: Parakeet v3 (NVIDIA, CC-BY-4.0), Whisper (OpenAI, MIT), Reverb diarization v1 (Rev, noncommercial license), WeSpeaker CAM++ (trained on VoxCeleb; check its terms for commercial use) and Gemma (Google, Gemma terms).</li>
 </ul>
 <h2>License</h2>
 <p>Sotto is free for <strong>personal and other noncommercial use</strong> under the <a href="LICENSE">PolyForm Noncommercial License 1.0.0</a>.

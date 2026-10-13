@@ -34,14 +34,14 @@ class ConsentGate internal constructor(private val ctx: Context, private val pen
 }
 
 @Composable
-fun rememberConsentGate(): ConsentGate {
+fun rememberConsentGate(onCancel: () -> Unit = {}): ConsentGate {
     val ctx = LocalContext.current
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
     val gate = remember { ConsentGate(ctx) { pending = it } }
     pending?.let { start ->
         var dontRemind by remember { mutableStateOf(false) }
         AlertDialog(
-            onDismissRequest = { pending = null },
+            onDismissRequest = { pending = null; onCancel() },
             title = { Text("Did everyone agree?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -65,7 +65,7 @@ fun rememberConsentGate(): ConsentGate {
                     start()
                 }) { Text("Everyone agreed, start") }
             },
-            dismissButton = { TextButton(onClick = { pending = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pending = null; onCancel() }) { Text("Cancel") } },
             containerColor = Palette.Surface,
         )
     }
