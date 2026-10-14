@@ -16,8 +16,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Tags a recording with where it was recorded: a fresh GPS fix when the note is new, otherwise
- * the phone's location log ([LocationLog]) closest to when the note started.
+ * Tags a recording with where it was recorded, trying in turn:
+ *  1. a fresh GPS fix (only for a note that just ended),
+ *  2. the phone's location log ([LocationLog]) closest to when the note started,
+ *  3. Wi-Fi seen right now (indoors, where GPS doesn't work): a network already linked to a place,
+ *     else the Wi-Fi's own name, which the user can rename once ("Home", "Office").
+ * Wi-Fi is only read from what the phone already sees; nothing is sent anywhere.
  *
  * Privacy: uses the phone's own GPS only (no Google location service), and names places
  * on the phone by matching earlier notes nearby. Turning addresses into street names
@@ -70,12 +74,31 @@ object PlaceTagger {
         LocationLog.start(ctx)
         try {
             val now = System.currentTimeMillis()
+            val end = start + ((RecordingStore.byId(id)?.seconds ?: 0.0) * 1000).toLong()
+            val fresh = now - end < 10 * 60_000L
+            val nets = if (fresh) wifi(ctx) else emptyList()
             // A note recorded just now: where the phone is now is where it was said
-            val live = if (now - start < 10 * 60_000L) locate(ctx)?.also { LocationLog.add(ctx, it) } else null
-            val (lat, lon) = live?.let { it.latitude to it.longitude }
+            val live = if (fresh) locate(ctx)?.also { LocationLog.add(ctx, it) } else null
+            val fix = live?.let { it.latitude to it.longitude }
                 ?: LocationLog.nearest(LocationLog.all(ctx), start)?.let { it.lat to it.lon }
-                ?: return // placed later, when a fix from around that time turns up
-            RecordingStore.setPlace(ctx, id, describe(ctx, lat, lon), lat, lon)
+            if (fix != null) {
+                val name = describe(ctx, fix.first, fix.second)
+                RecordingStore.setPlace(ctx, id, name, fix.first, fix.second)
+                learn(ctx, nets, name, fix.first, fix.second)
+                return
+            }
+            // Indoors without GPS: recognise the place by its Wi-Fi
+            val known = nets.firstNotNullOfOrNull { wifiPlace(ctx, it.first) }
+            when {
+                known != null -> RecordingStore.setPlace(ctx, id, alias(ctx, known.name), known.lat, known.lon)
+                nets.any { it.second.isNotBlank() } -> {
+                    val ssid = nets.first { it.second.isNotBlank() }.second
+                    val name = alias(ctx, "Wi-Fi “$ssid”")
+                    RecordingStore.setPlace(ctx, id, name, null, null)
+                    learn(ctx, nets, name, null, null)
+                }
+                // else: placed later, when a fix from around that time turns up
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "Could not tag place for $id", t)
         }
@@ -123,6 +146,55 @@ object PlaceTagger {
 
     fun setAlias(ctx: Context, from: String, to: String) {
         prefs(ctx).edit().putString(from, to).apply()
+        // networks linked to the old name follow the rename
+        val w = wifiPrefs(ctx)
+        val e = w.edit()
+        w.all.forEach { (k, v) -> (v as? String)?.let { if (it.substringBefore('|') == from) e.putString(k, to + "|" + it.substringAfter('|', "")) } }
+        e.apply()
+    }
+
+    // ---------------------------------------------------------------- Wi-Fi places
+
+    data class WifiPlace(val name: String, val lat: Double?, val lon: Double?)
+
+    private fun wifiPrefs(ctx: Context) = ctx.getSharedPreferences("wifi_places", Context.MODE_PRIVATE)
+
+    /** (BSSID, SSID) of the connected network and the strongest ones nearby, from the phone's last scan. */
+    @SuppressLint("MissingPermission")
+    @Suppress("DEPRECATION")
+    private fun wifi(ctx: Context): List<Pair<String, String>> = runCatching {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return emptyList()
+        val wm = ctx.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java) ?: return emptyList()
+        val out = mutableListOf<Pair<String, String>>()
+        wm.connectionInfo?.let { ci ->
+            val b = ci.bssid
+            if (b != null && b != "02:00:00:00:00:00") out += b to ci.ssid.orEmpty().trim('"').takeUnless { it == "<unknown ssid>" }.orEmpty()
+        }
+        val fresh = android.os.SystemClock.elapsedRealtime() * 1000 - 15 * 60_000_000L
+        wm.scanResults.orEmpty()
+            .filter { it.level > -80 && it.timestamp > fresh }
+            .sortedByDescending { it.level }.take(6)
+            .forEach { r -> if (out.none { it.first == r.BSSID }) out += r.BSSID to r.SSID.orEmpty() }
+        out
+    }.getOrDefault(emptyList())
+
+    private fun wifiPlace(ctx: Context, bssid: String): WifiPlace? {
+        val v = wifiPrefs(ctx).getString(bssid.lowercase(), null) ?: return null
+        val name = v.substringBefore('|')
+        val ll = v.substringAfter('|', "").split(',')
+        return WifiPlace(name, ll.getOrNull(0)?.toDoubleOrNull(), ll.getOrNull(1)?.toDoubleOrNull())
+    }
+
+    /** Links the networks seen at a place to its name, so the place is recognised next time indoors. */
+    private fun learn(ctx: Context, nets: List<Pair<String, String>>, name: String, lat: Double?, lon: Double?) {
+        if (nets.isEmpty()) return
+        val e = wifiPrefs(ctx).edit()
+        nets.forEach { (b, _) ->
+            // a GPS-named place wins over a Wi-Fi-only name
+            if (lat == null && wifiPlace(ctx, b)?.lat != null) return@forEach
+            e.putString(b.lowercase(), name + "|" + (if (lat != null && lon != null) "$lat,$lon" else ""))
+        }
+        e.apply()
     }
 
     private fun alias(ctx: Context, name: String): String = prefs(ctx).getString(name, null) ?: name
