@@ -243,7 +243,7 @@ class SottoLogicTest {
     }
 
     @Test fun wavTrim() {
-        val f = java.io.File.createTempFile("n", ".wav")
+        val f = java.io.File.createTempFile("note", ".wav")
         f.writeBytes(com.example.watchscribe.mobile.data.Wav.header(16_000, 16_000L * 2 * 6) + ByteArray(16_000 * 2 * 6))
         com.example.watchscribe.mobile.data.Wav.trim(f, 2.5)
         assertEquals(2.5, com.example.watchscribe.mobile.data.Wav.seconds(f), 0.001)
