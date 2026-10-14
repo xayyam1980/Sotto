@@ -35,7 +35,8 @@ import kotlin.math.sqrt
  *    each turn is transcribed separately so lines don't mix people
  */
 class Transcriber(private val ctx: Context) : AutoCloseable {
-    private val threads = max(2, Runtime.getRuntime().availableProcessors() - 2)
+    // At most 4 threads: phones have 4 or fewer fast cores, and adding the slow ones makes the models slower
+    private val threads = min(4, max(2, Runtime.getRuntime().availableProcessors() - 2))
     private val recognizers = HashMap<String, OfflineRecognizer>()
     private val engine = AiSettings.asrModel(ctx)
     private var parakeetRec: OfflineRecognizer? = null
@@ -188,7 +189,12 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
 
     private class Word(val t: Double, val text: String)
 
-    /** Speech regions (seconds) from the speech model, joined across pauses under 0.3 s. */
+    /**
+     * Speech regions (seconds) from the speech model, joined across pauses under 0.3 s.
+     * The audio goes in 10-second pieces (the model's own window): for a single window the
+     * library returns the speech straight away, without fingerprinting and grouping voices,
+     * which we don't need here. Measured on 10 minutes of audio: 3 s instead of 160 s.
+     */
     private fun speechRegions(x: FloatArray): List<DoubleArray> {
         val sd = OfflineSpeakerDiarization(
             config = OfflineSpeakerDiarizationConfig(
@@ -202,9 +208,20 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
                 minDurationOff = 0.2f,
             ),
         )
-        val raw = try { sd.process(x) } finally { sd.release() }
+        val found = mutableListOf<DoubleArray>()
+        try {
+            var st = 0
+            while (st < x.size) {
+                val en = min(x.size, st + SEG_WINDOW)
+                if (en - st >= 1_600) { // skip a last scrap under 0.1 s
+                    val off = st / 16_000.0
+                    sd.process(x.copyOfRange(st, en)).forEach { found += doubleArrayOf(off + it.start, off + it.end) }
+                }
+                st = en
+            }
+        } finally { sd.release() }
         val out = mutableListOf<DoubleArray>()
-        raw.map { doubleArrayOf(it.start.toDouble(), it.end.toDouble()) }.sortedBy { it[0] }.forEach { r ->
+        found.sortedBy { it[0] }.forEach { r ->
             val last = out.lastOrNull()
             if (last != null && r[0] <= last[1] + 0.3) last[1] = max(last[1], r[1]) else out += r
         }
@@ -262,11 +279,15 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             var (w, text) = parakeetWords(audio, sa)
             val spans = regions.mapNotNull { r -> val s0 = max(r[0], sa); val s1 = minOf(r[1], sb); if (s1 > s0) doubleArrayOf(s0, s1) else null }
             val speechSec = spans.sumOf { it[1] - it[0] }
-            // Russian/Ukrainian: Whisper turbo is clearly better on watch audio, so it takes over when downloaded
-            val cyrillic = text.any { it in '\u0400'..'\u04FF' }
-            if (whisperReady && speechSec >= 2.0 && (w.size / speechSec < 1.3 || mixedScripts(text) || cyrillic)) {
+            // Whisper is ~4x slower than Parakeet, so it only redoes a piece when Parakeet clearly failed:
+            // almost no words for the speech heard, two alphabets mixed, or Russian/Ukrainian (when those
+            // languages are switched on; Whisper turbo is clearly better there on watch audio)
+            val cyrillic = text.any { it in '\u0400'..'\u04FF' } && allowed.any { it == "ru" || it == "uk" }
+            val failed = speechSec >= 3.0 && w.size / speechSec < 0.8
+            if (whisperReady && speechSec >= 2.0 && (failed || mixedScripts(text) || cyrillic)) {
                 val (wText, _) = decode(audio, "")
-                if (wText.isNotBlank() && !looksLikeLoop(wText)) {
+                val more = wText.split(Regex("\\s+")).count { it.isNotBlank() } > w.size
+                if (wText.isNotBlank() && !looksLikeLoop(wText) && (more || cyrillic || mixedScripts(text))) {
                     text = wText
                     w = spreadWords(wText, spans.ifEmpty { listOf(doubleArrayOf(sa, sb)) })
                 }
@@ -536,6 +557,8 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
 
     companion object {
         const val MAX_SPEAKERS = 6
+        /** Speech-model window: 10 s at 16 kHz. */
+        const val SEG_WINDOW = 160_000
         private val ABBREVIATIONS = setOf("mr.", "mrs.", "ms.", "dr.", "prof.", "st.", "np.", "tzn.", "ul.", "e.g.", "i.e.", "etc.", "vs.", "p.", "nr.")
         /** Two groups whose voices are on average this similar are one person. */
         const val SAME_PERSON = 0.45
