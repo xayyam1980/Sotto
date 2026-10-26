@@ -26,7 +26,7 @@ Created by **Khayyam Bayramov** Â· [xayyam@gmail.com](mailto:xayyam@gmail.com) Â
 
 **On the watch**
 - Listens all day but **saves only speech**; silence is skipped.
-- **Tile** shows live status, recording time and an estimate of the battery left (for example "~9 h battery"). Its buttons:
+- **Tile**: when off, one big button starts listening. While listening, a ring fills with today's recorded time around a big clock, with the battery estimate (for example "~9 h battery") on top. Its buttons:
   - **Pause**: 15 min, 1 h or until resumed.
   - **Mark**: bookmarks an important moment.
   - **Note to self**: a short memo that arrives on the phone as a to-do.
