@@ -79,7 +79,7 @@ fun AiCard() {
 
     val (title, sub) = when {
         status.isNotBlank() -> "Working on your notes" to status
-        unpacking -> "Preparing models…" to "Unpacking, this takes a minute"
+        unpacking -> "Preparing models…" to "Unpacking, a few minutes. You can leave the app"
         downloading.isNotEmpty() -> "Downloading AI models" to "${(downloading.average() * 100).toInt()}% · Wi-Fi only, keeps going in the background"
         missing.isNotEmpty() -> "Set up on-phone AI" to "One-time download, ${gb(missing.sumOf { it.approxBytes })} on Wi-Fi. Nothing leaves your phone."
         waitingAsr + waitingSum > 0 -> "${waitingAsr + waitingSum} notes waiting" to
@@ -227,7 +227,7 @@ private fun ModelsSection() {
                     }
                 ModelState.Unpacking -> {}
                 else -> TextButton(onClick = { scope.launch(Dispatchers.IO) { Models.download(ctx, m) } }) {
-                    Text("Get", color = Palette.Accent)
+                    Text(if (st is ModelState.Failed) "Retry" else "Get", color = Palette.Accent)
                 }
             }
         }

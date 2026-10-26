@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -61,7 +62,8 @@ sealed interface ModelState {
 
 /**
  * Downloads models with Android's DownloadManager (resumes, survives app restarts,
- * Wi-Fi only) into the app's own storage, then unpacks archives.
+ * Wi-Fi only) into the app's own storage. Archives are then unpacked by [ModelSetupWorker],
+ * which keeps going when the app is closed (unpacking takes a few minutes on a phone).
  */
 object Models {
     private const val TAG = "SottoModels"
@@ -73,6 +75,7 @@ object Models {
     fun dir(ctx: Context): File = File(ctx.getExternalFilesDir(null)!!, "models").apply { mkdirs() }
     private fun marker(ctx: Context, m: ModelId) = File(dir(ctx), "${m.name}.ok")
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun failKey(m: ModelId) = "fail_${m.name}"
 
     fun isReady(ctx: Context, m: ModelId) = marker(ctx, m).exists()
 
@@ -101,6 +104,7 @@ object Models {
     fun download(ctx: Context, m: ModelId) {
         if (isReady(ctx, m) || prefs(ctx).getLong(m.name, -1L) >= 0) return
         File(dir(ctx), m.fileName).delete()
+        prefs(ctx).edit().remove(failKey(m)).apply()
         val req = DownloadManager.Request(Uri.parse(m.url))
             .setTitle("Sotto · ${m.label}")
             .setDescription(m.purpose)
@@ -115,6 +119,7 @@ object Models {
     fun delete(ctx: Context, m: ModelId) {
         cancel(ctx, m)
         marker(ctx, m).delete()
+        prefs(ctx).edit().remove(failKey(m)).apply()
         File(dir(ctx), m.fileName).delete()
         if (m == ModelId.WHISPER) File(dir(ctx), "sherpa-onnx-whisper-turbo").deleteRecursively()
         if (m == ModelId.PARAKEET) File(dir(ctx), PARAKEET_DIR).deleteRecursively()
@@ -128,7 +133,7 @@ object Models {
         prefs(ctx).edit().remove(m.name).apply()
     }
 
-    /** Updates states; unpacks finished archives. Call from a background thread. */
+    /** Updates states; starts unpacking finished archives. Call from a background thread. */
     @Synchronized
     fun refresh(ctx: Context) {
         removeReplaced(ctx)
@@ -137,20 +142,25 @@ object Models {
         for (m in ModelId.entries) {
             if (isReady(ctx, m)) { out[m] = ModelState.Ready; continue }
             val id = prefs(ctx).getLong(m.name, -1L)
-            if (id < 0) { out[m] = _states.value[m] as? ModelState.Failed ?: ModelState.Missing; continue }
+            if (id < 0) {
+                out[m] = prefs(ctx).getString(failKey(m), null)?.let { ModelState.Failed(it) } ?: ModelState.Missing
+                continue
+            }
             dm.query(DownloadManager.Query().setFilterById(id)).use { c ->
                 if (!c.moveToFirst()) { prefs(ctx).edit().remove(m.name).apply(); out[m] = ModelState.Missing; return@use }
                 val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                 val done = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                 val total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)).takeIf { it > 0 } ?: m.approxBytes
                 out[m] = when (status) {
-                    DownloadManager.STATUS_SUCCESSFUL -> {
-                        _states.value = _states.value + (m to ModelState.Unpacking)
+                    DownloadManager.STATUS_SUCCESSFUL -> if (m.archive) {
+                        ModelSetupWorker.start(ctx)
+                        ModelState.Unpacking
+                    } else {
                         finish(ctx, m)
                     }
                     DownloadManager.STATUS_FAILED -> {
-                        prefs(ctx).edit().remove(m.name).apply()
-                        ModelState.Failed("Download failed (code ${c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))})")
+                        fail(ctx, m, "Download failed (code ${c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))})")
+                        ModelState.Failed(prefs(ctx).getString(failKey(m), "Download failed")!!)
                     }
                     else -> ModelState.Downloading((done.toFloat() / total).coerceIn(0f, 1f))
                 }
@@ -159,21 +169,78 @@ object Models {
         _states.value = out
     }
 
-    private fun finish(ctx: Context, m: ModelId): ModelState = try {
+    /** A downloaded single file (no archive): checks it and marks it ready. */
+    private fun finish(ctx: Context, m: ModelId): ModelState {
         val f = File(dir(ctx), m.fileName)
         // Sanity check: a download much smaller than expected is broken or not the real file
-        if (f.length() < m.approxBytes / 2) throw IllegalStateException("file is incomplete (${f.length()} bytes)")
-        if (m.archive) {
-            untarBz2(f, dir(ctx))
-            f.delete()
+        if (f.length() < m.approxBytes / 2) {
+            fail(ctx, m, "Download is incomplete (${f.length() / 1_000_000} MB), tap Retry")
+            return ModelState.Failed(prefs(ctx).getString(failKey(m), "")!!)
         }
         marker(ctx, m).writeText("ok")
         prefs(ctx).edit().remove(m.name).apply()
-        ModelState.Ready
-    } catch (t: Throwable) {
-        Log.e(TAG, "Unpack failed for $m", t)
-        prefs(ctx).edit().remove(m.name).apply()
-        ModelState.Failed("Couldn't unpack: ${t.message}")
+        return ModelState.Ready
+    }
+
+    /** Remembers why [m] failed (shown until the next try) and frees its download. */
+    private fun fail(ctx: Context, m: ModelId, reason: String) {
+        Log.e(TAG, "$m: $reason")
+        prefs(ctx).edit().remove(m.name).putString(failKey(m), reason).apply()
+        File(dir(ctx), m.fileName).delete()
+    }
+
+    /** Archives that finished downloading and still need unpacking. */
+    fun pendingUnpack(ctx: Context): List<ModelId> {
+        val dm = ctx.getSystemService(DownloadManager::class.java)
+        return ModelId.entries.filter { m ->
+            val id = prefs(ctx).getLong(m.name, -1L)
+            m.archive && id >= 0 && !isReady(ctx, m) &&
+                dm.query(DownloadManager.Query().setFilterById(id)).use { c ->
+                    c.moveToFirst() && c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
+                }
+        }
+    }
+
+    /**
+     * Unpacks a downloaded archive. Slow (a few minutes on a phone), so [ModelSetupWorker] runs it.
+     * Unpacks into a temporary folder first, so a half-unpacked model is never used, and only
+     * marks the model ready when every file the engine needs is there.
+     */
+    fun unpack(ctx: Context, m: ModelId) {
+        val d = dir(ctx)
+        val f = File(d, m.fileName)
+        val tmp = File(d, ".unpack-${m.name}")
+        try {
+            if (f.length() < m.approxBytes / 2) throw IOException("download is incomplete (${f.length() / 1_000_000} MB)")
+            // Unpacked, the models take up to twice the archive's size
+            val need = f.length() * 2
+            if (d.usableSpace < need) throw IOException("not enough free space, needs about ${"%.1f".format(need / 1e9)} GB free")
+            tmp.deleteRecursively()
+            untarBz2(f, tmp)
+            tmp.listFiles().orEmpty().forEach { part ->
+                val dest = File(d, part.name)
+                dest.deleteRecursively()
+                if (!part.renameTo(dest)) throw IOException("couldn't move ${part.name}")
+            }
+            val missing = requiredFiles(ctx, m).map(::File).filter { !it.exists() || it.length() == 0L }
+            if (missing.isNotEmpty()) throw IOException("${missing.first().name} is missing from the download")
+            marker(ctx, m).writeText("ok")
+            prefs(ctx).edit().remove(m.name).remove(failKey(m)).apply()
+            f.delete()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Unpack failed for $m", t)
+            fail(ctx, m, "Couldn't unpack: ${t.message ?: t.javaClass.simpleName}. Tap Retry")
+        } finally {
+            tmp.deleteRecursively()
+        }
+    }
+
+    /** The files the engines open for [m]. */
+    private fun requiredFiles(ctx: Context, m: ModelId): List<String> = when (m) {
+        ModelId.PARAKEET -> listOf("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt").map { parakeet(ctx, it) }
+        ModelId.WHISPER -> listOf(whisperEncoder(ctx), whisperDecoder(ctx), whisperTokens(ctx))
+        ModelId.SPEECH -> listOf(segmentation(ctx))
+        else -> listOf(File(dir(ctx), m.fileName).path)
     }
 
     /** Frees the space of speaker models earlier test builds used. */
