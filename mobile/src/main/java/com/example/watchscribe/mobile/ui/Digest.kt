@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -53,11 +52,13 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.watchscribe.mobile.data.Redact
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Saved digests, so reopening a day shows its summary straight away. Keyed by the exact set of notes. */
 object Digests {
     /** Set when a notification asks to show a summary ("week"); the Notes screen opens it. */
-    val request = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val request = MutableStateFlow<String?>(null)
 
     private fun dir(ctx: Context) = File(ctx.filesDir, "digests").apply { mkdirs() }
     private fun file(ctx: Context, ids: List<String>) =
@@ -141,12 +142,13 @@ fun DigestSheet(title: String, notes: List<Recording>, onOpen: (String) -> Unit,
             }
             if (text.isNotBlank() && !running) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Pill("Share") {
-                    val body = "$title\n\n$text".let { if (com.example.watchscribe.mobile.data.Redact.on(ctx)) com.example.watchscribe.mobile.data.Redact.text(it) else it }
+                    val body = "$title\n\n$text".let { if (Redact.on(ctx)) Redact.text(it) else it }
                     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, body)
                     ctx.startActivity(Intent.createChooser(send, "Share summary"))
                 }
                 Pill("Copy") {
-                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(title, "$title\n\n$text".let { if (com.example.watchscribe.mobile.data.Redact.on(ctx)) com.example.watchscribe.mobile.data.Redact.text(it) else it }))
+                    val body = "$title\n\n$text".let { if (Redact.on(ctx)) Redact.text(it) else it }
+                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(title, body))
                 }
                 Pill("Redo") { run() }
             }

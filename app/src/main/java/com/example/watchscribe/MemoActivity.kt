@@ -18,6 +18,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.io.File
+import android.widget.Toast
 
 /**
  * Note to self: records a short memo (up to a minute) that the phone turns into a to-do.
@@ -133,7 +134,7 @@ class MemoActivity : Activity() {
             val saved = file != null
             if (saved) ChunkSync.requestSync(this)
             runOnUiThread {
-                if (saved) android.widget.Toast.makeText(applicationContext, "Saved · goes to your phone as a to-do", android.widget.Toast.LENGTH_SHORT).show()
+                if (saved) Toast.makeText(applicationContext, "Saved · goes to your phone as a to-do", Toast.LENGTH_SHORT).show()
                 if (!isFinishing) finish()
             }
         }

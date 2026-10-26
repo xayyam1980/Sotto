@@ -15,6 +15,7 @@ import com.example.watchscribe.mobile.MainActivity
 import com.example.watchscribe.mobile.data.RecordingStore
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import com.example.watchscribe.mobile.R
 
 /**
  * Runs a few times a day: deletes old audio (if the user chose that) and, on Friday afternoon,
@@ -70,7 +71,7 @@ class Housekeeping(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         )
         nm.notify(
             21, NotificationCompat.Builder(ctx, CHANNEL)
-                .setSmallIcon(com.example.watchscribe.mobile.R.drawable.ic_launcher_monochrome)
+                .setSmallIcon(R.drawable.ic_launcher_monochrome)
                 .setContentTitle("Your week in $count notes")
                 .setContentText("Tap for a summary of decisions and to-dos, made on your phone.")
                 .setAutoCancel(true)

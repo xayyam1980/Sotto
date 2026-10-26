@@ -7,6 +7,11 @@ import org.junit.Test
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.file.Files
+import java.util.Calendar
 
 /** Core audio logic of the watch app, run on the computer. */
 class WatchLogicTest {
@@ -65,18 +70,18 @@ class WatchLogicTest {
         assertEquals(Forget.Action.Delete, Forget.plan(start, 60.0, start + 1_000))
         assertEquals(Forget.Action.Delete, Forget.plan(start, 60.0, start - 5_000))
         assertEquals(Forget.Action.Trim(20.0), Forget.plan(start, 60.0, start + 20_000))
-        assertEquals(java.util.Calendar.getInstance().apply { set(2026, 9, 13, 10, 42, 5); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis,
+        assertEquals(Calendar.getInstance().apply { set(2026, 9, 13, 10, 42, 5); set(Calendar.MILLISECOND, 0) }.timeInMillis,
             Forget.startOf("chunk_20261013_104205.wav"))
     }
 
     @Test fun trimFileKeepsHeaderValid() {
-        val f = java.io.File.createTempFile("chunk", ".wav")
+        val f = File.createTempFile("chunk", ".wav")
         f.writeBytes(WavChunkWriter.header(rate, rate * 2L * 10) + ByteArray(rate * 2 * 10))
         assertEquals(10.0, WavChunkWriter.seconds(f), 0.001)
         WavChunkWriter.trimFile(f, 4.0)
         assertEquals(44L + rate * 2 * 4, f.length())
         assertEquals(4.0, WavChunkWriter.seconds(f), 0.001)
-        val dataLen = java.nio.ByteBuffer.wrap(f.readBytes(), 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+        val dataLen = ByteBuffer.wrap(f.readBytes(), 40, 4).order(ByteOrder.LITTLE_ENDIAN).int
         assertEquals(rate * 2 * 4, dataLen)
         f.delete()
     }
@@ -88,11 +93,11 @@ class WatchLogicTest {
     }
 
     @Test fun chunkQueryCarriesMarksAndMemo() {
-        val dir = java.nio.file.Files.createTempDirectory("q").toFile()
-        val f = java.io.File(dir, "chunk_20261013_104205.wav").apply { writeBytes(ByteArray(44)) }
+        val dir = Files.createTempDirectory("q").toFile()
+        val f = File(dir, "chunk_20261013_104205.wav").apply { writeBytes(ByteArray(44)) }
         assertEquals("", ChunkSync.query(f))
-        java.io.File(dir, f.name + ".marks").writeText("12.3,45.0")
-        java.io.File(dir, f.name + ".memo").writeText("1")
+        File(dir, f.name + ".marks").writeText("12.3,45.0")
+        File(dir, f.name + ".memo").writeText("1")
         assertEquals("?m=12.3,45.0&memo=1", ChunkSync.query(f))
         dir.deleteRecursively()
     }

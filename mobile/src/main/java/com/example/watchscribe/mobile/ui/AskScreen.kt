@@ -152,7 +152,10 @@ fun AskScreen(bottomNav: @Composable () -> Unit, onOpen: (String) -> Unit) {
                         if (t.done) {
                             val cited = Regex("\\[(\\d+)]").findAll(t.answer).mapNotNull { it.groupValues[1].toIntOrNull() }.distinct()
                                 .mapNotNull { n -> t.sources.getOrNull(n - 1)?.let { n to it } }.toList()
-                            if (cited.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (cited.isNotEmpty()) FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 cited.forEach { (n, r) ->
                                     Text(
                                         "[$n] ${r.title} · ${Exporter.length(r.seconds)}", fontSize = 12.sp, color = Palette.Accent,

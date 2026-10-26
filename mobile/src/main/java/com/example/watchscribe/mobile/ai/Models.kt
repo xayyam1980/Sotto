@@ -194,7 +194,8 @@ object Models {
                 if (e.isDirectory || e.name.contains("test_wavs") || e.name.contains("..") || e.name.startsWith("/")) continue
                 // only the files the engines need
                 if (!(e.name.endsWith(".onnx") || e.name.endsWith("tokens.txt"))) continue
-                if (e.name.contains("encoder.onnx") || e.name.contains("decoder.onnx") || e.name.contains("joiner.onnx")) continue // big fp32 copies: keep int8 only
+                // big fp32 copies: keep int8 only
+                if (listOf("encoder.onnx", "decoder.onnx", "joiner.onnx").any { e.name.contains(it) }) continue
                 val out = File(into, e.name)
                 out.parentFile?.mkdirs()
                 out.outputStream().use { tar.copyTo(it, 1 shl 16) }

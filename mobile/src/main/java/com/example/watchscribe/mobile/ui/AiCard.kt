@@ -51,6 +51,11 @@ import com.example.watchscribe.mobile.ai.ProcessWorker
 import com.example.watchscribe.mobile.data.RecordingStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import android.content.Intent
+import android.net.Uri
+import androidx.work.WorkManager
+import com.example.watchscribe.mobile.AppLock
+import com.example.watchscribe.mobile.data.PlaceTagger
 
 private fun gb(b: Long) = if (b >= 1_000_000_000) "%.1f GB".format(b / 1e9) else "${b / 1_000_000} MB"
 
@@ -94,7 +99,9 @@ fun AiCard() {
             }
             when {
                 missing.isNotEmpty() && downloading.isEmpty() && !unpacking ->
-                    TextButton(onClick = { scope.launch(Dispatchers.IO) { needed.forEach { Models.download(ctx, it) } } }) { Text("Download", color = Palette.Accent) }
+                    TextButton(onClick = { scope.launch(Dispatchers.IO) { needed.forEach { Models.download(ctx, it) } } }) {
+                        Text("Download", color = Palette.Accent)
+                    }
                 missing.isEmpty() && status.isBlank() && waitingAsr + waitingSum > 0 ->
                     TextButton(onClick = { ProcessWorker.runNow(ctx) }) { Text("Now", color = Palette.Accent) }
             }
@@ -119,8 +126,8 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
     var llm by remember { mutableStateOf(AiSettings.summaryModel(ctx)) }
     var charging by remember { mutableStateOf(AiSettings.onlyWhileCharging(ctx)) }
     var sumLang by remember { mutableStateOf(AiSettings.summaryLanguage(ctx)) }
-    var lookup by remember { mutableStateOf(com.example.watchscribe.mobile.data.PlaceTagger.addressLookup(ctx)) }
-    var locked by remember { mutableStateOf(com.example.watchscribe.mobile.AppLock.enabled(ctx)) }
+    var lookup by remember { mutableStateOf(PlaceTagger.addressLookup(ctx)) }
+    var locked by remember { mutableStateOf(AppLock.enabled(ctx)) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Palette.Surface) {
         Column(
@@ -135,15 +142,15 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text("App lock", fontSize = 15.sp)
                     Text(
-                        if (com.example.watchscribe.mobile.AppLock.available(ctx)) "Fingerprint, face or PIN, checked on this phone only. Also hides notes in recent apps."
+                        if (AppLock.available(ctx)) "Fingerprint, face or PIN, checked on this phone only. Also hides notes in recent apps."
                         else "Set up a screen lock in Android settings first",
                         fontSize = 12.sp, color = Palette.Muted,
                     )
                 }
                 Switch(locked, { on ->
                     val act = ctx.findActivity() ?: return@Switch
-                    com.example.watchscribe.mobile.AppLock.setEnabled(act, on) { ok -> if (ok) locked = on }
-                }, enabled = com.example.watchscribe.mobile.AppLock.available(ctx),
+                    AppLock.setEnabled(act, on) { ok -> if (ok) locked = on }
+                }, enabled = AppLock.available(ctx),
                     colors = SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.OnAccent))
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -151,7 +158,7 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
                     Text("Street names for places", fontSize = 15.sp)
                     Text("Off: places are named on the phone (rename them once). On: coordinates are sent to Google's address lookup.", fontSize = 12.sp, color = Palette.Muted)
                 }
-                Switch(lookup, { lookup = it; com.example.watchscribe.mobile.data.PlaceTagger.setAddressLookup(ctx, it) },
+                Switch(lookup, { lookup = it; PlaceTagger.setAddressLookup(ctx, it) },
                     colors = SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.OnAccent))
             }
 
@@ -231,7 +238,11 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
             Section("Summaries in")
             listOf("English" to "English", "same" to "Language of the recording").forEach { (v, label) ->
                 Row(Modifier.fillMaxWidth().clickable { sumLang = v; AiSettings.setSummaryLanguage(ctx, v) }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(sumLang == v, { sumLang = v; AiSettings.setSummaryLanguage(ctx, v) }, colors = RadioButtonDefaults.colors(selectedColor = Palette.Accent))
+                    RadioButton(
+                        sumLang == v,
+                        { sumLang = v; AiSettings.setSummaryLanguage(ctx, v) },
+                        colors = RadioButtonDefaults.colors(selectedColor = Palette.Accent),
+                    )
                     Text(label, fontSize = 14.sp)
                 }
             }
@@ -244,7 +255,7 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
                 }
                 Switch(charging, {
                     charging = it; AiSettings.setOnlyWhileCharging(ctx, it)
-                    androidx.work.WorkManager.getInstance(ctx).cancelUniqueWork("sotto-process")
+                    WorkManager.getInstance(ctx).cancelUniqueWork("sotto-process")
                     ProcessWorker.schedule(ctx)
                 }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.OnAccent))
             }
@@ -267,8 +278,8 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
                 "xayyam@gmail.com", fontSize = 14.sp, color = Palette.Accent,
                 modifier = Modifier.clickable {
                     runCatching {
-                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:xayyam@gmail.com"))
-                            .putExtra(android.content.Intent.EXTRA_SUBJECT, "Sotto $version"))
+                        ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:xayyam@gmail.com"))
+                            .putExtra(Intent.EXTRA_SUBJECT, "Sotto $version"))
                     }
                 }.padding(vertical = 4.dp),
             )
@@ -284,5 +295,8 @@ fun AiSettingsSheet(onDismiss: () -> Unit) {
 
 @Composable
 private fun Section(t: String) {
-    Text(t.uppercase(), fontSize = 11.sp, letterSpacing = 1.sp, color = Palette.Muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp))
+    Text(
+        t.uppercase(), fontSize = 11.sp, letterSpacing = 1.sp, color = Palette.Muted,
+        fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp),
+    )
 }

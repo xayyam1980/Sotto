@@ -17,6 +17,8 @@ import androidx.work.WorkerParameters
 import com.example.watchscribe.mobile.data.RecordingStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import androidx.work.WorkInfo
+import com.example.watchscribe.mobile.R
 
 /**
  * Transcribes and summarises waiting notes on the phone, in the background.
@@ -64,7 +66,7 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         /** Start right away, even on battery. A run in progress picks up new work itself. */
         fun runNow(ctx: Context) {
             val running = runCatching {
-                WorkManager.getInstance(ctx).getWorkInfosForUniqueWork(WORK).get().any { it.state == androidx.work.WorkInfo.State.RUNNING }
+                WorkManager.getInstance(ctx).getWorkInfosForUniqueWork(WORK).get().any { it.state == WorkInfo.State.RUNNING }
             }.getOrDefault(false)
             if (running) return
             WorkManager.getInstance(ctx).enqueueUniqueWork(
@@ -77,7 +79,7 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         val nm = applicationContext.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Processing notes", NotificationManager.IMPORTANCE_LOW))
         val n = NotificationCompat.Builder(applicationContext, CHANNEL)
-            .setSmallIcon(com.example.watchscribe.mobile.R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle("Sotto")
             .setContentText(text)
             .setOngoing(true)

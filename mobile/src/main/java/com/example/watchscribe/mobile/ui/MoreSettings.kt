@@ -51,7 +51,10 @@ import java.util.Locale
 
 @Composable
 private fun Label(t: String) {
-    Text(t.uppercase(), fontSize = 11.sp, letterSpacing = 1.sp, color = Palette.Muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp))
+    Text(
+        t.uppercase(), fontSize = 11.sp, letterSpacing = 1.sp, color = Palette.Muted,
+        fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp),
+    )
 }
 
 /** People, Keep audio, Weekly summary and Backup sections of the Settings sheet. */

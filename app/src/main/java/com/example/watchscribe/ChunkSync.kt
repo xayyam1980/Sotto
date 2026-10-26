@@ -9,6 +9,7 @@ import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import android.os.BatteryManager
 
 /**
  * Sends finished .wav chunks to the phone app over the Wearable Data Layer.
@@ -53,7 +54,7 @@ object ChunkSync {
 
     /** Everything the phone's Watch tab shows, as JSON on "/watch/status". */
     fun sendStatus(ctx: Context, node: String, note: String = "") {
-        val bm = ctx.getSystemService(android.os.BatteryManager::class.java)
+        val bm = ctx.getSystemService(BatteryManager::class.java)
         val left = Battery.hoursLeft(ctx)
         val (sec, notes) = Stats.today(ctx)
         val o = org.json.JSONObject()
@@ -64,7 +65,7 @@ object ChunkSync {
             .put("waiting", RecorderService.savedChunks(ctx).size)
             .put("todaySec", sec)
             .put("todayNotes", notes)
-            .put("battery", bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1)
+            .put("battery", bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1)
             .put("freeMb", ctx.filesDir.usableSpace / 1_000_000)
             .put("sync", status)
             .put("error", RecorderService.lastError ?: "")

@@ -78,6 +78,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.example.watchscribe.mobile.ai.Housekeeping
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -103,7 +107,7 @@ fun LibraryScreen(
     var menuFor by remember { mutableStateOf<String?>(null) }
     val request by Digests.request.collectAsState()
     fun openWeek() {
-        val since = com.example.watchscribe.mobile.ai.Housekeeping.weekStart()
+        val since = Housekeeping.weekStart()
         digest = "This week · summary" to all.filter { it.start >= since }
     }
     LaunchedEffect(request) { if (request == "week") { openWeek(); Digests.request.value = null } }
@@ -151,7 +155,9 @@ fun LibraryScreen(
                 Text(
                     "$n ${if (n == 1) "note is" else "notes are"} hidden by filters · Show all",
                     fontSize = 13.sp, color = Palette.Accent,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { opts.reset(); opts.query = "" }.padding(horizontal = 4.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .clickable { opts.reset(); opts.query = "" }
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
                 )
             }
             groups.forEach { (label, list) ->
@@ -169,27 +175,27 @@ fun LibraryScreen(
                                 IconButton(onClick = { menuFor = label }, modifier = Modifier.size(32.dp)) {
                                     Icon(Icons.Rounded.MoreVert, "Actions for $label", Modifier.size(20.dp), tint = Palette.Muted)
                                 }
-                                androidx.compose.material3.DropdownMenu(
+                                DropdownMenu(
                                     expanded = menuFor == label, onDismissRequest = { menuFor = null },
                                     containerColor = Palette.Surface,
                                 ) {
                                     val isDay = opts.groupBy == GroupBy.DAY
-                                    androidx.compose.material3.DropdownMenuItem(
+                                    DropdownMenuItem(
                                         text = { Text(if (isDay) "Summary of the day" else "Summary of these notes") },
                                         leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
                                         onClick = { menuFor = null; digest = "$label · summary" to list },
                                     )
-                                    androidx.compose.material3.DropdownMenuItem(
+                                    DropdownMenuItem(
                                         text = { Text("Summary of this week") },
                                         leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
                                         onClick = { menuFor = null; openWeek() },
                                     )
-                                    androidx.compose.material3.DropdownMenuItem(
+                                    DropdownMenuItem(
                                         text = { Text("Select these notes") },
                                         leadingIcon = { Icon(Icons.Rounded.CheckCircle, null) },
                                         onClick = { menuFor = null; onSelectionChange(list.map { it.id }.toSet()) },
                                     )
-                                    androidx.compose.material3.DropdownMenuItem(
+                                    DropdownMenuItem(
                                         text = { Text(if (isDay) "Delete the day…" else "Delete these notes…", color = Palette.Danger) },
                                         leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Palette.Danger) },
                                         onClick = { menuFor = null; deleting = label to list },
@@ -332,7 +338,8 @@ private fun PlacesPermissionCard() {
     }
     if (dismissed || (fg && bg)) return
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).border(1.dp, Palette.Line, RoundedCornerShape(18.dp)).padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).border(1.dp, Palette.Line, RoundedCornerShape(18.dp))
+            .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(Icons.Rounded.Place, null, Modifier.size(20.dp), tint = Palette.Accent)
@@ -372,7 +379,7 @@ private fun SelectionBar(onShare: () -> Unit, onExport: () -> Unit, onStar: () -
 }
 
 @Composable
-private fun BarAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color, onClick: () -> Unit) {
+private fun BarAction(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
     Column(
         Modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -384,7 +391,11 @@ private fun BarAction(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 
 @Composable
 private fun EmptyState(nothingYet: Boolean) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 64.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 64.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Text(if (nothingYet) "No notes yet" else "Nothing matches", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
         Text(
             if (nothingYet) "Start Sotto on your watch. Notes appear here a few seconds after you stop talking."

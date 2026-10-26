@@ -18,6 +18,8 @@ import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.graphics.Typeface
+import android.widget.Toast
 
 /** Sotto on the watch: same look as the tile — status, today's stats, Pause/Mark, sync. */
 class MainActivity : Activity() {
@@ -52,10 +54,11 @@ class MainActivity : Activity() {
     }
 
     private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+    private fun wrap() = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     private fun pill(color: Int, radius: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
     private fun label(size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
         textSize = size; setTextColor(color); gravity = Gravity.CENTER
-        if (bold) typeface = android.graphics.Typeface.DEFAULT_BOLD
+        if (bold) typeface = Typeface.DEFAULT_BOLD
     }
     private fun roundButton(icon: Int, desc: String, onClick: () -> Unit) = ImageButton(this).apply {
         setImageResource(icon)
@@ -101,12 +104,12 @@ class MainActivity : Activity() {
             addView(markBtn)
             addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
             addView(stopBtn)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
+            layoutParams = wrap().apply { topMargin = dp(12) }
         }
         syncChip = label(12f, green).apply {
             background = pill(Color.parseColor("#17191D"), 14)
             setPadding(dp(12), dp(5), dp(12), dp(5))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
+            layoutParams = wrap().apply { topMargin = dp(10) }
             setOnClickListener { ChunkSync.requestSync(this@MainActivity); waitingAt = 0L }
         }
 
@@ -117,7 +120,7 @@ class MainActivity : Activity() {
             addView(label(13f, muted).apply {
                 text = "sotto"
                 setOnClickListener {
-                    android.widget.Toast.makeText(this@MainActivity, "Sotto · by Khayyam Bayramov\nxayyam@gmail.com", android.widget.Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Sotto · by Khayyam Bayramov\nxayyam@gmail.com", Toast.LENGTH_LONG).show()
                 }
             })
             addView(status)
@@ -140,9 +143,10 @@ class MainActivity : Activity() {
         val nowMs = System.currentTimeMillis()
         if (nowMs - waitingAt > 3_000) { waitingAt = nowMs; waiting = RecorderService.savedChunks(this).size }
         val err = RecorderService.lastError
+        val today = "Today ${Stats.duration(sec)} · $notes ${if (notes == 1) "note" else "notes"}"
 
         when {
-            !on -> { status.text = "Off"; status.setTextColor(white); sub.text = "Today ${Stats.duration(sec)} · $notes ${if (notes == 1) "note" else "notes"}" }
+            !on -> { status.text = "Off"; status.setTextColor(white); sub.text = today }
             paused -> {
                 status.text = "Paused"; status.setTextColor(amber)
                 val u = RecorderService.pausedUntil
@@ -156,7 +160,7 @@ class MainActivity : Activity() {
                 sub.text = "%d:%02d".format(s / 60, s % 60) +
                     if (RecorderService.marksInChunk > 0) " · ${RecorderService.marksInChunk} marked" else ""
             }
-            else -> { status.text = "● Listening"; status.setTextColor(white); sub.text = "Today ${Stats.duration(sec)} · $notes ${if (notes == 1) "note" else "notes"}" }
+            else -> { status.text = "● Listening"; status.setTextColor(white); sub.text = today }
         }
 
         startBtn.visibility = if (on) View.GONE else View.VISIBLE

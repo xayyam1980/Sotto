@@ -14,6 +14,8 @@ import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import android.net.wifi.WifiManager
+import android.os.SystemClock
 
 /**
  * Tags a recording with where it was recorded, trying in turn:
@@ -172,13 +174,13 @@ object PlaceTagger {
     @Suppress("DEPRECATION")
     private fun wifi(ctx: Context): List<Pair<String, String>> = runCatching {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return emptyList()
-        val wm = ctx.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java) ?: return emptyList()
+        val wm = ctx.applicationContext.getSystemService(WifiManager::class.java) ?: return emptyList()
         val out = mutableListOf<Pair<String, String>>()
         wm.connectionInfo?.let { ci ->
             val b = ci.bssid
             if (b != null && b != "02:00:00:00:00:00") out += b to ci.ssid.orEmpty().trim('"').takeUnless { it == "<unknown ssid>" }.orEmpty()
         }
-        val fresh = android.os.SystemClock.elapsedRealtime() * 1000 - 15 * 60_000_000L
+        val fresh = SystemClock.elapsedRealtime() * 1000 - 15 * 60_000_000L
         wm.scanResults.orEmpty()
             .filter { it.level > -80 && it.timestamp > fresh }
             .sortedByDescending { it.level }.take(6)

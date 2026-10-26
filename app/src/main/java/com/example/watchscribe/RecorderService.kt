@@ -25,6 +25,8 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import android.app.AlarmManager
+import android.media.audiofx.AudioEffect
 
 /**
  * Foreground service that listens continuously and saves only speech.
@@ -194,7 +196,7 @@ class RecorderService : Service() {
         appCtx = this
         createChannel()
         startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        getSystemService(android.app.NotificationManager::class.java).cancel(9) // "Start listening?" from the phone
+        getSystemService(NotificationManager::class.java).cancel(9) // "Start listening?" from the phone
 
         // Held only while the mic is open: during a pause the watch is allowed to sleep
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
@@ -246,8 +248,8 @@ class RecorderService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         val wake = PendingIntent.getService(this, 2, Intent(this, RecorderService::class.java).setAction(ACTION_WAKE),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val alarms = getSystemService(android.app.AlarmManager::class.java)
-        if (until != UNTIL_RESUME) alarms.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, until, wake)
+        val alarms = getSystemService(AlarmManager::class.java)
+        if (until != UNTIL_RESUME) alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, until, wake)
         synchronized(signal) {
             if (running && pausedUntil == until && !holdMic) {
                 val left = if (until == UNTIL_RESUME) 0L else (until - System.currentTimeMillis()).coerceAtLeast(1)
@@ -286,7 +288,7 @@ class RecorderService : Service() {
 
         val light = Battery.light(this)
         if (light != lightMode) { lightMode = light; updateTile(this) }
-        val effects = mutableListOf<android.media.audiofx.AudioEffect>()
+        val effects = mutableListOf<AudioEffect>()
         // Light mode skips the extra effects: the phone cleans the audio anyway
         if (!light && NoiseSuppressor.isAvailable()) {
             NoiseSuppressor.create(recorder.audioSessionId)?.let { it.enabled = true; effects += it }

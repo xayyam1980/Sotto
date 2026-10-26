@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
+import android.content.Context
 
 /**
  * Invisible activity that starts or stops recording, then closes.
@@ -17,7 +18,7 @@ class ToggleActivity : Activity() {
         const val EXTRA_START_ONLY = "start_only"
         const val EXTRA_TOKEN = "token"
         /** Intent other parts of Sotto use; carries the secret token. */
-        fun intent(ctx: android.content.Context) = Intent(ctx, ToggleActivity::class.java).putExtra(EXTRA_TOKEN, Stats.token(ctx))
+        fun intent(ctx: Context) = Intent(ctx, ToggleActivity::class.java).putExtra(EXTRA_TOKEN, Stats.token(ctx))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.watchscribe.mobile.PhoneRecorder
 import kotlinx.coroutines.delay
+import android.content.Context
 
 /** "Record with phone": for meetings where the phone on the table hears better than the watch. */
 @Composable
@@ -72,7 +73,7 @@ fun PhoneMicCard() {
         am.registerAudioDeviceCallback(cb, null)
         onDispose { am.unregisterAudioDeviceCallback(cb) }
     }
-    val prefs = remember { ctx.getSharedPreferences("phone_mic", android.content.Context.MODE_PRIVATE) }
+    val prefs = remember { ctx.getSharedPreferences("phone_mic", Context.MODE_PRIVATE) }
     var wanted by remember { mutableStateOf(prefs.getString("mic", "Phone microphone")!!) }
     val selected = inputs.firstOrNull { it.label == wanted } ?: inputs.first()
 

@@ -73,6 +73,18 @@ import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
+import android.content.Intent
+import android.provider.CalendarContract
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.watchscribe.mobile.ai.AiSettings
+import com.example.watchscribe.mobile.ai.Handoff
+import com.example.watchscribe.mobile.ai.ProcessWorker
+import com.example.watchscribe.mobile.data.People
+import com.example.watchscribe.mobile.data.RecordingStore
+import java.util.Calendar
+import kotlinx.coroutines.Dispatchers
 
 private val detailFmt = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
 
@@ -87,7 +99,7 @@ fun RecordingScreen(
     onRename: (String) -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(0) }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val ctx = LocalContext.current
     var renaming by remember { mutableStateOf(false) }
     var seekReq by remember { mutableStateOf<Int?>(null) }
     var naming by remember { mutableStateOf<Int?>(null) }
@@ -99,7 +111,10 @@ fun RecordingScreen(
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notes") }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { onStar(!r.starred) }) {
-                    Icon(if (r.starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (r.starred) "Unstar" else "Star", tint = if (r.starred) Palette.Amber else Palette.Text)
+                    Icon(
+                        if (r.starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (r.starred) "Unstar" else "Star",
+                        tint = if (r.starred) Palette.Amber else Palette.Text,
+                    )
                 }
                 IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, "Share or export") }
                 IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Delete") }
@@ -156,11 +171,14 @@ fun RecordingScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Column(Modifier.width(52.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(Exporter.stamp(sg.t0), fontSize = 12.sp, color = Palette.Accent, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 3.dp))
+                            Text(
+                                Exporter.stamp(sg.t0), fontSize = 12.sp, color = Palette.Accent,
+                                fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 3.dp),
+                            )
                             sg.speaker?.let { spk ->
                                 Text(
                                     r.who(spk)!!, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    overflow = TextOverflow.Ellipsis,
                                     color = Palette.PlaceTints[spk % Palette.PlaceTints.size],
                                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { naming = spk },
                                 )
@@ -202,7 +220,7 @@ fun RecordingScreen(
                 ) {
                     val (head, body) = when {
                         segs == null -> "Not transcribed yet" to
-                            if (com.example.watchscribe.mobile.ai.AiSettings.onlyWhileCharging(ctx)) "Sotto transcribes on this phone while it's charging. Use “Process now” on the Notes screen to start immediately."
+                            if (AiSettings.onlyWhileCharging(ctx)) "Sotto transcribes on this phone while it's charging. Use “Process now” on the Notes screen to start immediately."
                             else "Sotto is transcribing on this phone. It appears here when ready."
                         segs.isEmpty() -> "No speech found" to "No clear speech was found in this recording."
                         else -> "Summary not ready" to "The transcript is ready. The summary is made on this phone after transcription (download Gemma in AI settings)."
@@ -215,11 +233,11 @@ fun RecordingScreen(
 
             // Hand-off to your own Claude / Gemini app (uses your subscription there)
             if (!segs.isNullOrEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                com.example.watchscribe.mobile.ai.Handoff.App.entries.forEach { app ->
+                Handoff.App.entries.forEach { app ->
                     Box(
                         Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(22.dp))
                             .border(1.dp, Palette.Line, RoundedCornerShape(22.dp))
-                            .clickable { com.example.watchscribe.mobile.ai.Handoff.send(ctx, app, r) },
+                            .clickable { Handoff.send(ctx, app, r) },
                         contentAlignment = Alignment.Center,
                     ) { Text("Open in ${app.label}", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
                 }
@@ -326,7 +344,10 @@ private fun Player(r: Recording, seekReq: Int?, onSeekDone: () -> Unit) {
                     .clickable { if (playing) pause() else play() },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", tint = Palette.OnAccent, modifier = Modifier.size(30.dp))
+                Icon(
+                    if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play",
+                    tint = Palette.OnAccent, modifier = Modifier.size(30.dp),
+                )
             }
             IconButton(onClick = { seek(pos + 10_000) }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds") }
             SmallPillButton(if (clean) "Clean" else "Original", if (clean) Palette.Green else Palette.Text) {
@@ -337,7 +358,7 @@ private fun Player(r: Recording, seekReq: Int?, onSeekDone: () -> Unit) {
 }
 
 @Composable
-private fun SmallPillButton(label: String, color: androidx.compose.ui.graphics.Color = Palette.Text, onClick: () -> Unit) {
+private fun SmallPillButton(label: String, color: Color = Palette.Text, onClick: () -> Unit) {
     Box(
         Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).border(1.dp, Palette.Line, RoundedCornerShape(18.dp))
             .clickable(onClick = onClick).padding(horizontal = 12.dp),
@@ -351,12 +372,12 @@ private fun SmallPillButton(label: String, color: androidx.compose.ui.graphics.C
  * Re-runs only the speaker step on the phone (a few seconds per minute of audio).
  */
 @Composable
-private fun SpeakerControl(r: com.example.watchscribe.mobile.data.Recording) {
+private fun SpeakerControl(r: Recording) {
     if (r.audioDeleted) return
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val jobs by com.example.watchscribe.mobile.ai.ProcessWorker.jobs.collectAsState()
+    val ctx = LocalContext.current
+    val jobs by ProcessWorker.jobs.collectAsState()
     val busy = r.redo != null || jobs.containsKey(r.id)
-    fun redo(n: Int) = com.example.watchscribe.mobile.ai.ProcessWorker.redo(ctx, r.id, n)
+    fun redo(n: Int) = ProcessWorker.redo(ctx, r.id, n)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -394,13 +415,13 @@ private fun SpeakerControl(r: com.example.watchscribe.mobile.data.Recording) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NameSpeakerDialog(r: Recording, spk: Int, onDone: () -> Unit) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val ctx = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val people by com.example.watchscribe.mobile.data.People.all.collectAsState()
-    LaunchedEffect(Unit) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.example.watchscribe.mobile.data.People.load(ctx) } }
+    val people by People.all.collectAsState()
+    LaunchedEffect(Unit) { kotlinx.coroutines.withContext(Dispatchers.IO) { People.load(ctx) } }
     var text by remember { mutableStateOf("") }
     fun pick(name: String?) {
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) { com.example.watchscribe.mobile.data.RecordingStore.setSpeakerName(ctx, r.id, spk, name) }
+        scope.launch(Dispatchers.IO) { RecordingStore.setSpeakerName(ctx, r.id, spk, name) }
         onDone()
     }
     AlertDialog(
@@ -409,7 +430,7 @@ private fun NameSpeakerDialog(r: Recording, spk: Int, onDone: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Sotto learns this voice on your phone and names this person in other notes too.", fontSize = 13.sp, color = Palette.Muted)
-                val known = (listOf(com.example.watchscribe.mobile.data.People.ME) + people.map { it.name }).distinct()
+                val known = (listOf(People.ME) + people.map { it.name }).distinct()
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     known.forEach { n ->
                         Text(
@@ -436,28 +457,28 @@ private fun NameSpeakerDialog(r: Recording, spk: Int, onDone: () -> Unit) {
 /** Puts an action item in the calendar or a to-do app (Google Tasks, Todoist… via Share). */
 @Composable
 private fun ActionButtons(r: Recording, item: String) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val ctx = LocalContext.current
     IconButton(onClick = {
         // Tomorrow 9:00 as a starting point; the calendar app lets you change it before saving
-        val start = java.util.Calendar.getInstance().apply {
-            add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0)
+        val start = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1); set(Calendar.HOUR_OF_DAY, 9); set(Calendar.MINUTE, 0)
         }.timeInMillis
-        val i = android.content.Intent(android.content.Intent.ACTION_INSERT, android.provider.CalendarContract.Events.CONTENT_URI)
-            .putExtra(android.provider.CalendarContract.Events.TITLE, item)
-            .putExtra(android.provider.CalendarContract.Events.DESCRIPTION, "From the note “${r.title}” in Sotto")
-            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
-            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, start + 30 * 60_000L)
+        val i = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI)
+            .putExtra(CalendarContract.Events.TITLE, item)
+            .putExtra(CalendarContract.Events.DESCRIPTION, "From the note “${r.title}” in Sotto")
+            .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
+            .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, start + 30 * 60_000L)
         runCatching { ctx.startActivity(i) }.onFailure {
-            android.widget.Toast.makeText(ctx, "No calendar app found", android.widget.Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "No calendar app found", Toast.LENGTH_SHORT).show()
         }
     }, modifier = Modifier.size(32.dp)) {
         Icon(Icons.Rounded.Event, "Add to calendar", Modifier.size(18.dp), tint = Palette.Muted)
     }
     IconButton(onClick = {
-        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
-            .putExtra(android.content.Intent.EXTRA_SUBJECT, item)
-            .putExtra(android.content.Intent.EXTRA_TEXT, item)
-        ctx.startActivity(android.content.Intent.createChooser(send, "Add to tasks"))
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(Intent.EXTRA_SUBJECT, item)
+            .putExtra(Intent.EXTRA_TEXT, item)
+        ctx.startActivity(Intent.createChooser(send, "Add to tasks"))
     }, modifier = Modifier.size(32.dp)) {
         Icon(Icons.Rounded.AddTask, "Add to a to-do app", Modifier.size(18.dp), tint = Palette.Muted)
     }

@@ -20,6 +20,12 @@ import org.junit.Test
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.sin
+import com.example.watchscribe.mobile.ai.ProcessWorker
+import com.example.watchscribe.mobile.data.BackupCrypto
+import com.example.watchscribe.mobile.data.People
+import com.example.watchscribe.mobile.data.Redact
+import java.io.ByteArrayOutputStream
+import java.util.Random
 
 /** Core logic of the phone app, run on the computer (no phone needed). */
 class SottoLogicTest {
@@ -129,7 +135,7 @@ class SottoLogicTest {
 
     // ---------- speakers: how many people are in a note
     private fun voices(seed: Long, counts: List<Int>, noise: Double): List<FloatArray> {
-        val r = java.util.Random(seed)
+        val r = Random(seed)
         val centers = counts.map { FloatArray(192) { r.nextGaussian().toFloat() }.let { v -> val n = kotlin.math.sqrt(v.sumOf { (it * it).toDouble() }); FloatArray(192) { (v[it] / n).toFloat() } } }
         return counts.flatMapIndexed { c, n -> List(n) { FloatArray(192) { (centers[c][it] + r.nextGaussian() * noise).toFloat() } } }
     }
@@ -179,18 +185,18 @@ class SottoLogicTest {
     // ---------- backups
     @Test fun backupRoundTripAndWrongPassword() {
         val data = ByteArray(2_500_000) { (it * 31 % 251).toByte() } // spans three 1 MB chunks
-        val enc = java.io.ByteArrayOutputStream()
-        com.example.watchscribe.mobile.data.BackupCrypto.encrypt(data.inputStream(), enc, "secret".toCharArray(), iterations = 1_000)
-        val out = java.io.ByteArrayOutputStream()
-        com.example.watchscribe.mobile.data.BackupCrypto.decrypt(enc.toByteArray().inputStream(), out, "secret".toCharArray())
+        val enc = ByteArrayOutputStream()
+        BackupCrypto.encrypt(data.inputStream(), enc, "secret".toCharArray(), iterations = 1_000)
+        val out = ByteArrayOutputStream()
+        BackupCrypto.decrypt(enc.toByteArray().inputStream(), out, "secret".toCharArray())
         assertTrue(data.contentEquals(out.toByteArray()))
         val wrong = runCatching {
-            com.example.watchscribe.mobile.data.BackupCrypto.decrypt(enc.toByteArray().inputStream(), java.io.ByteArrayOutputStream(), "nope".toCharArray())
+            BackupCrypto.decrypt(enc.toByteArray().inputStream(), ByteArrayOutputStream(), "nope".toCharArray())
         }.exceptionOrNull()
-        assertTrue(wrong is com.example.watchscribe.mobile.data.BackupCrypto.WrongPassword)
+        assertTrue(wrong is BackupCrypto.WrongPassword)
         val cut = enc.toByteArray().copyOf(enc.size() - 40)
         assertTrue(runCatching {
-            com.example.watchscribe.mobile.data.BackupCrypto.decrypt(cut.inputStream(), java.io.ByteArrayOutputStream(), "secret".toCharArray())
+            BackupCrypto.decrypt(cut.inputStream(), ByteArrayOutputStream(), "secret".toCharArray())
         }.isFailure)
     }
 
@@ -198,18 +204,18 @@ class SottoLogicTest {
     @Test fun recognisesKnownVoices() {
         fun v(vararg x: Float) = x
         val people = listOf(
-            com.example.watchscribe.mobile.data.People.Person("1", "Me", v(1f, 0f, 0f), 3),
-            com.example.watchscribe.mobile.data.People.Person("2", "Anna", v(0f, 1f, 0f), 2),
+            People.Person("1", "Me", v(1f, 0f, 0f), 3),
+            People.Person("2", "Anna", v(0f, 1f, 0f), 2),
         )
-        val names = com.example.watchscribe.mobile.data.People.match(listOf(v(0.1f, 0.9f, 0.1f), v(0.9f, 0.2f, 0f), v(0f, 0f, 1f)), people)
+        val names = People.match(listOf(v(0.1f, 0.9f, 0.1f), v(0.9f, 0.2f, 0f), v(0f, 0f, 1f)), people)
         assertEquals(listOf("Anna", "Me", null), names)
         // one person is never given to two speakers
-        assertEquals(listOf("Me", null), com.example.watchscribe.mobile.data.People.match(listOf(v(1f, 0f, 0f), v(0.95f, 0.1f, 0f)), people))
+        assertEquals(listOf("Me", null), People.match(listOf(v(1f, 0f, 0f), v(0.95f, 0.1f, 0f)), people))
     }
 
     // ---------- hiding personal details when sharing
     @Test fun hidesPersonalDetails() {
-        fun r(s: String) = com.example.watchscribe.mobile.data.Redact.text(s)
+        fun r(s: String) = Redact.text(s)
         assertEquals("Call me at [number] or [number].", r("Call me at +48 601 234 567 or 601-234-567."))
         assertEquals("Mail [email] now", r("Mail anna.kowalska@firma.pl now"))
         assertEquals("IBAN [IBAN] please", r("IBAN PL61 1090 1014 0000 0712 1981 2874 please"))
@@ -230,8 +236,8 @@ class SottoLogicTest {
     }
 
     @Test fun memoTitleIsShortToDo() {
-        assertEquals("To-do: Call Anna about the invoice", com.example.watchscribe.mobile.ai.ProcessWorker.memoTitle("call Anna about the invoice."))
-        val long = com.example.watchscribe.mobile.ai.ProcessWorker.memoTitle("remember to book the flight to Warsaw and the hotel near the office for next week")
+        assertEquals("To-do: Call Anna about the invoice", ProcessWorker.memoTitle("call Anna about the invoice."))
+        val long = ProcessWorker.memoTitle("remember to book the flight to Warsaw and the hotel near the office for next week")
         org.junit.Assert.assertTrue(long, long.endsWith("…") && long.length <= 7 + 49)
     }
 
@@ -243,10 +249,10 @@ class SottoLogicTest {
     }
 
     @Test fun wavTrim() {
-        val f = java.io.File.createTempFile("note", ".wav")
-        f.writeBytes(com.example.watchscribe.mobile.data.Wav.header(16_000, 16_000L * 2 * 6) + ByteArray(16_000 * 2 * 6))
-        com.example.watchscribe.mobile.data.Wav.trim(f, 2.5)
-        assertEquals(2.5, com.example.watchscribe.mobile.data.Wav.seconds(f), 0.001)
+        val f = File.createTempFile("note", ".wav")
+        f.writeBytes(Wav.header(16_000, 16_000L * 2 * 6) + ByteArray(16_000 * 2 * 6))
+        Wav.trim(f, 2.5)
+        assertEquals(2.5, Wav.seconds(f), 0.001)
         f.delete()
     }
 

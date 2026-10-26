@@ -8,6 +8,9 @@ import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
+import com.example.watchscribe.mobile.PhoneRecorder
+import com.example.watchscribe.mobile.SottoWidget
+import com.example.watchscribe.mobile.ai.ProcessWorker
 
 /**
  * The library of recordings. Files live in filesDir:
@@ -50,7 +53,7 @@ object RecordingStore {
                 ?: load(ctx, f).also { cache[f.name] = stamp(ctx, f) to it }
         }.sortedByDescending { it.start }
         cache.keys.retainAll(seen)
-        runCatching { com.example.watchscribe.mobile.SottoWidget.update(ctx) }
+        runCatching { SottoWidget.update(ctx) }
     }
 
     /** Forgets what was read, so the next refresh reads every note again (after a restore). */
@@ -141,7 +144,7 @@ object RecordingStore {
     fun forget(ctx: Context, from: Long, to: Long) {
         refresh(ctx)
         for (r in _items.value) {
-            if (r.start > to || com.example.watchscribe.mobile.PhoneRecorder.isPhoneNote(ctx, r.id)) continue
+            if (r.start > to || PhoneRecorder.isPhoneNote(ctx, r.id)) continue
             val end = r.start + (r.seconds * 1000).toLong()
             if (end <= from) continue
             val keep = (from - r.start) / 1000.0
@@ -173,7 +176,7 @@ object RecordingStore {
             }
         }
         refresh(ctx)
-        com.example.watchscribe.mobile.ai.ProcessWorker.schedule(ctx)
+        ProcessWorker.schedule(ctx)
     }
 
     fun setTranscript(
@@ -233,7 +236,8 @@ object RecordingStore {
             val tr = m.optJSONObject("transcript") ?: return@editMeta
             val n = tr.optInt("speakers", 0).coerceAtLeast(spk + 1)
             val old = tr.optJSONArray("names")
-            val names = JSONArray().apply { for (i in 0 until n) put(if (i == spk) (name?.trim()?.ifBlank { null } ?: JSONObject.NULL) else old?.opt(i) ?: JSONObject.NULL) }
+            val newName: Any = name?.trim()?.ifBlank { null } ?: JSONObject.NULL
+            val names = JSONArray().apply { for (i in 0 until n) put(if (i == spk) newName else old?.opt(i) ?: JSONObject.NULL) }
             tr.put("names", names)
             val manual = (tr.optJSONArray("manual")?.let { a -> List(a.length()) { a.getInt(it) } } ?: emptyList()).toMutableSet().apply { add(spk) }
             tr.put("manual", JSONArray(manual.toList()))

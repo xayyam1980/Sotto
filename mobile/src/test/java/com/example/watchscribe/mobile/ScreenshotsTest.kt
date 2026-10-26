@@ -18,10 +18,18 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import java.io.File
+import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import com.example.watchscribe.mobile.data.People
+import com.example.watchscribe.mobile.ui.MoreSettings
+import com.example.watchscribe.mobile.ui.Palette
 
 /**
  * Draws the real phone screens with made-up sample notes and saves them as PNGs in
@@ -82,12 +90,12 @@ class ScreenshotsTest {
 
     @Test fun notes() {
         // A connected Bluetooth headset, so the "Record with phone" card shows the mic choice
-        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val am = ctx.getSystemService(android.media.AudioManager::class.java)
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val am = ctx.getSystemService(AudioManager::class.java)
         org.robolectric.Shadows.shadowOf(am).setInputDevices(
             listOf(
                 org.robolectric.shadows.AudioDeviceInfoBuilder.newBuilder()
-                    .setType(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
+                    .setType(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
                     .build(),
             ),
         )
@@ -107,21 +115,21 @@ class ScreenshotsTest {
 
     /** Settings: People, Keep audio, Weekly summary, Backup. */
     @Test fun settings() {
-        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
         File(ctx.filesDir, "people.json").writeText(
             """[{"id":"1","name":"Me","n":12,"voice":[1,0,0]},{"id":"2","name":"Anna","n":5,"voice":[0,1,0]},{"id":"3","name":"Piotr","n":2,"voice":[0,0,1]}]""",
         )
-        com.example.watchscribe.mobile.data.People.invalidate()
-        com.example.watchscribe.mobile.data.People.load(ctx)
+        People.invalidate()
+        People.load(ctx)
         shoot("phone-settings") {
             // Same colours as inside the real Settings sheet
-            androidx.compose.material3.Surface(
-                color = com.example.watchscribe.mobile.ui.Palette.Surface,
-                contentColor = com.example.watchscribe.mobile.ui.Palette.Text,
+            Surface(
+                color = Palette.Surface,
+                contentColor = Palette.Text,
             ) {
-                androidx.compose.foundation.layout.Column(
-                    androidx.compose.ui.Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                ) { com.example.watchscribe.mobile.ui.MoreSettings() }
+                Column(
+                    Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                ) { MoreSettings() }
             }
         }
     }

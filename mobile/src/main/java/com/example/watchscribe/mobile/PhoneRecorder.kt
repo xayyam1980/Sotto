@@ -30,6 +30,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.sqrt
+import android.media.AudioRecordingConfiguration
+import android.os.Build
+import com.example.watchscribe.mobile.data.Wav
 
 /**
  * Records with the phone's own microphone (for meetings where the phone is on the table).
@@ -80,7 +83,7 @@ class PhoneRecorder : Service() {
                 .filter { it.type in HEADSET_TYPES }
                 .distinctBy { it.type to it.productName.toString() }
                 .map { d ->
-                    val name = d.productName?.toString()?.takeIf { it.isNotBlank() && it != android.os.Build.MODEL }
+                    val name = d.productName?.toString()?.takeIf { it.isNotBlank() && it != Build.MODEL }
                     Input(d.id, name?.let { "$it" } ?: kind(d.type), d.type)
                 }
             // Many Bluetooth headsets only expose their mic through the "call" route, so look there too
@@ -161,7 +164,7 @@ class PhoneRecorder : Service() {
         var lastRouteCheck = 0L
         // Android lets one app hear the mic at a time; notice when another app takes it
         val silenceWatch = object : AudioManager.AudioRecordingCallback() {
-            override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) {
+            override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
                 val mine = configs.firstOrNull { it.clientAudioSessionId == rec.audioSessionId } ?: return
                 if (mine.isClientSilenced != _live.value.silenced) {
                     _live.value = _live.value.copy(silenced = mine.isClientSilenced)
@@ -189,7 +192,10 @@ class PhoneRecorder : Service() {
                 // Which mic is really in use (falls back to the phone mic if the headset disconnects)
                 val mic = if (now - lastRouteCheck > 2000) {
                     lastRouteCheck = now
-                    rec.routedDevice?.let { d -> if (d.type == AudioDeviceInfo.TYPE_BUILTIN_MIC) "Phone microphone" else d.productName?.toString()?.ifBlank { null } ?: kind(d.type) }
+                    rec.routedDevice?.let { d ->
+                        if (d.type == AudioDeviceInfo.TYPE_BUILTIN_MIC) "Phone microphone"
+                        else d.productName?.toString()?.ifBlank { null } ?: kind(d.type)
+                    }
                 } else null
                 _live.value = _live.value.copy(level = (rms * 8).toFloat().coerceIn(0f, 1f), mic = mic ?: _live.value.mic)
                 if (piece.seconds >= PIECE_SEC) {
@@ -295,7 +301,7 @@ class PhoneRecorder : Service() {
                 return Piece(f, raf)
             }
 
-            fun header(dataLen: Long): ByteArray = com.example.watchscribe.mobile.data.Wav.header(RATE, dataLen)
+            fun header(dataLen: Long): ByteArray = Wav.header(RATE, dataLen)
         }
     }
 }

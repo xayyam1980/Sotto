@@ -53,15 +53,21 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import android.content.Intent
+import android.os.Build
+import com.example.watchscribe.mobile.ai.Housekeeping
+import com.example.watchscribe.mobile.data.LocationLog
+import com.example.watchscribe.mobile.data.Redact
+import com.example.watchscribe.mobile.ui.Digests
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         RecordingStore.emptyTrash(this)
-        intent?.getStringExtra(com.example.watchscribe.mobile.ai.Housekeeping.EXTRA_DIGEST)?.let { com.example.watchscribe.mobile.ui.Digests.request.value = it }
+        intent?.getStringExtra(Housekeeping.EXTRA_DIGEST)?.let { Digests.request.value = it }
         intent?.getStringExtra(SottoWidget.EXTRA_OPEN)?.let { SottoWidget.openRequest.value = it }
-        if (android.os.Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+        if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         setContent {
             WatchScribeTheme {
                 val lock by AppLock.locked.collectAsState()
@@ -70,9 +76,9 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.getStringExtra(com.example.watchscribe.mobile.ai.Housekeeping.EXTRA_DIGEST)?.let { com.example.watchscribe.mobile.ui.Digests.request.value = it }
+        intent.getStringExtra(Housekeeping.EXTRA_DIGEST)?.let { Digests.request.value = it }
         intent.getStringExtra(SottoWidget.EXTRA_OPEN)?.let { SottoWidget.openRequest.value = it }
     }
 
@@ -88,7 +94,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
-        com.example.watchscribe.mobile.data.LocationLog.start(this)
+        LocationLog.start(this)
         Thread { RecordingStore.refresh(applicationContext) }.start()
     }
 }
@@ -110,7 +116,7 @@ private fun App() {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { RecordingStore.refresh(ctx) }
         ProcessWorker.schedule(ctx)
-        com.example.watchscribe.mobile.ai.Housekeeping.schedule(ctx)
+        Housekeeping.schedule(ctx)
         // While the app is open: keep model download progress fresh
         while (true) {
             withContext(Dispatchers.IO) { runCatching { Models.refresh(ctx) } }
@@ -118,7 +124,7 @@ private fun App() {
         }
     }
 
-    val digestRequest by com.example.watchscribe.mobile.ui.Digests.request.collectAsState()
+    val digestRequest by Digests.request.collectAsState()
     LaunchedEffect(digestRequest) { if (digestRequest != null) screen = Screen.Library }
     val openRequest by SottoWidget.openRequest.collectAsState()
     LaunchedEffect(openRequest, all) {
@@ -150,7 +156,7 @@ private fun App() {
     }
 
     fun send(dest: Dest, opt: ExportOptions, ids: List<String>) {
-        val recs = all.filter { it.id in ids }.let { l -> if (opt.hidePersonal) l.map(com.example.watchscribe.mobile.data.Redact::recording) else l }
+        val recs = all.filter { it.id in ids }.let { l -> if (opt.hidePersonal) l.map(Redact::recording) else l }
         if (recs.isEmpty()) return
         scope.launch {
             val files = withContext(Dispatchers.IO) { Exporter.build(ctx, recs, opt) }
@@ -168,11 +174,22 @@ private fun App() {
 
     val nav: @Composable () -> Unit = {
         NavigationBar(containerColor = Palette.Surface) {
-            val colors = NavigationBarItemDefaults.colors(indicatorColor = Palette.AccentContainer, selectedIconColor = Palette.Accent, selectedTextColor = Palette.Text, unselectedIconColor = Palette.Muted, unselectedTextColor = Palette.Muted)
-            NavigationBarItem(screen == Screen.Library, { screen = Screen.Library }, { Icon(Icons.AutoMirrored.Rounded.Notes, null) }, label = { Text("Notes") }, colors = colors)
-            NavigationBarItem(screen == Screen.Places, { screen = Screen.Places }, { Icon(Icons.Rounded.Place, null) }, label = { Text("Places") }, colors = colors)
-            NavigationBarItem(screen == Screen.Ask, { screen = Screen.Ask }, { Icon(Icons.AutoMirrored.Rounded.Chat, null) }, label = { Text("Ask") }, colors = colors)
-            NavigationBarItem(screen == Screen.Watch, { screen = Screen.Watch }, { Icon(Icons.Rounded.Watch, null) }, label = { Text("Watch") }, colors = colors)
+            val colors = NavigationBarItemDefaults.colors(
+                indicatorColor = Palette.AccentContainer,
+                selectedIconColor = Palette.Accent, selectedTextColor = Palette.Text,
+                unselectedIconColor = Palette.Muted, unselectedTextColor = Palette.Muted,
+            )
+            listOf(
+                Triple(Screen.Library, "Notes", Icons.AutoMirrored.Rounded.Notes),
+                Triple(Screen.Places, "Places", Icons.Rounded.Place),
+                Triple(Screen.Ask, "Ask", Icons.AutoMirrored.Rounded.Chat),
+                Triple(Screen.Watch, "Watch", Icons.Rounded.Watch),
+            ).forEach { (target, label, icon) ->
+                NavigationBarItem(
+                    selected = screen == target, onClick = { screen = target },
+                    icon = { Icon(icon, null) }, label = { Text(label) }, colors = colors,
+                )
+            }
         }
     }
 

@@ -77,7 +77,8 @@ object Gemma {
 
     /** Title, short summary and action items for one transcript. Blocking. */
     fun summarize(ctx: Context, transcript: String, recordingLang: String?): Summary? {
-        val outLang = if (AiSettings.summaryLanguage(ctx) == "same") (AiSettings.ALL_LANGUAGES[recordingLang] ?: "the language of the transcript") else "English"
+        val outLang = if (AiSettings.summaryLanguage(ctx) != "same") "English"
+            else AiSettings.ALL_LANGUAGES[recordingLang] ?: "the language of the transcript"
         val system = """
             You turn rough automatic transcripts of real conversations into short notes.
             The transcript may contain recognition mistakes; infer the meaning, never invent facts.

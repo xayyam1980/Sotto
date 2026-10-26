@@ -159,10 +159,14 @@ fun WatchScreen(bottomNav: @Composable () -> Unit) {
                                 Action("Pause 1 hour", Icons.Rounded.Pause, Modifier.weight(1f)) { io { WatchSync.pause(ctx, 60) } }
                             }
                         }
-                        s.state == "paused" -> Action(if (stopped) "Start listening" else "Resume now", Icons.Rounded.PlayArrow, Modifier.fillMaxWidth(), primary = true) {
+                        s.state == "paused" -> Action(
+                            if (stopped) "Start listening" else "Resume now", Icons.Rounded.PlayArrow, Modifier.fillMaxWidth(), primary = true,
+                        ) {
                             if (stopped) consent.ask { io { WatchSync.start(ctx) } } else io { WatchSync.start(ctx) }
                         }
-                        else -> Action("Start listening", Icons.Rounded.Mic, Modifier.fillMaxWidth(), primary = true) { consent.ask { io { WatchSync.start(ctx) } } }
+                        else -> Action("Start listening", Icons.Rounded.Mic, Modifier.fillMaxWidth(), primary = true) {
+                            consent.ask { io { WatchSync.start(ctx) } }
+                        }
                     }
                     if (s.state != "off") Text(
                         "Turn off completely", fontSize = 13.sp, color = Palette.Muted,
@@ -199,14 +203,17 @@ fun WatchScreen(bottomNav: @Composable () -> Unit) {
             }
 
             // ---- Today
-            val today = all.filter { System.currentTimeMillis() - it.start < 24 * 3600_000L && SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(it.start)) == SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()) }
+            val day = SimpleDateFormat("yyyyMMdd", Locale.US)
+            val todayKey = day.format(Date())
+            val today = all.filter { System.currentTimeMillis() - it.start < 24 * 3600_000L && day.format(Date(it.start)) == todayKey }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Stat("Captured today", s?.let { dur(it.todaySec) } ?: "—", Modifier.weight(1f))
                 Stat("Notes on phone today", today.size.toString(), Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Stat("Waiting on watch", s?.waiting?.toString() ?: "—", Modifier.weight(1f))
-                Stat("Watch storage free", s?.let { if (it.freeMb >= 1000) "%.1f GB".format(it.freeMb / 1000.0) else "${it.freeMb} MB" } ?: "—", Modifier.weight(1f))
+                val free = s?.let { if (it.freeMb >= 1000) "%.1f GB".format(it.freeMb / 1000.0) else "${it.freeMb} MB" } ?: "—"
+                Stat("Watch storage free", free, Modifier.weight(1f))
             }
 
             Text(

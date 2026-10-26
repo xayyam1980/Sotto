@@ -55,6 +55,8 @@ import com.example.watchscribe.mobile.data.ExportOptions
 import com.example.watchscribe.mobile.data.Exporter
 import com.example.watchscribe.mobile.data.NoteFormat
 import com.example.watchscribe.mobile.data.Recording
+import androidx.compose.ui.platform.LocalContext
+import com.example.watchscribe.mobile.data.Redact
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -136,8 +138,8 @@ fun ExportSheet(
     onDismiss: () -> Unit,
     onSend: (Dest, ExportOptions) -> Unit,
 ) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    var opt by remember { mutableStateOf(ExportOptions(hidePersonal = com.example.watchscribe.mobile.data.Redact.on(ctx))) }
+    val ctx = LocalContext.current
+    var opt by remember { mutableStateOf(ExportOptions(hidePersonal = Redact.on(ctx))) }
     val bytes = Exporter.estimateBytes(recs, opt)
     val size = if (bytes > 1_000_000) "%.1f MB".format(bytes / 1_000_000.0) else "${(bytes / 1000).coerceAtLeast(1)} KB"
     val totalMin = (recs.sumOf { it.seconds } / 60).toInt()
@@ -184,7 +186,7 @@ fun ExportSheet(
                 }
                 Row(
                     Modifier.fillMaxWidth().height(56.dp).toggleable(value = opt.hidePersonal, onValueChange = {
-                        opt = opt.copy(hidePersonal = it); com.example.watchscribe.mobile.data.Redact.setOn(ctx, it)
+                        opt = opt.copy(hidePersonal = it); Redact.setOn(ctx, it)
                     }, role = Role.Switch),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

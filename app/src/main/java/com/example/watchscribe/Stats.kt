@@ -4,6 +4,7 @@ import android.content.Context
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /** Today's captured time and note count, plus a few persisted settings. */
 object Stats {
@@ -56,7 +57,7 @@ object Stats {
      * Random secret only Sotto knows. The tile and Sotto's own screens pass it to ToggleActivity,
      * so other apps on the watch can't switch the microphone on or off.
      */
-    fun token(ctx: Context): String = p(ctx).getString("token", null) ?: java.util.UUID.randomUUID().toString().also {
+    fun token(ctx: Context): String = p(ctx).getString("token", null) ?: UUID.randomUUID().toString().also {
         p(ctx).edit().putString("token", it).apply()
     }
 

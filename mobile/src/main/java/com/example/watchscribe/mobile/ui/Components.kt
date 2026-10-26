@@ -43,6 +43,10 @@ import com.example.watchscribe.mobile.data.Exporter
 import com.example.watchscribe.mobile.data.Recording
 import java.text.SimpleDateFormat
 import java.util.Locale
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.platform.LocalContext
+import com.example.watchscribe.mobile.PhoneRecorder
+import com.example.watchscribe.mobile.ai.ProcessWorker
 
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 fun clock(t: Long): String = timeFmt.format(t)
@@ -130,7 +134,7 @@ fun RecordingCard(
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 MetaChip(r.placeOrUnknown, icon = true)
-                if (com.example.watchscribe.mobile.PhoneRecorder.isPhoneNote(androidx.compose.ui.platform.LocalContext.current, r.id))
+                if (PhoneRecorder.isPhoneNote(LocalContext.current, r.id))
                     MetaChip("Phone mic")
                 if (r.marks.isNotEmpty()) MetaChip(
                     "${r.marks.size} ${if (r.marks.size == 1) "mark" else "marks"}",
@@ -153,7 +157,11 @@ fun Pill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, fontSize = 13.sp, color = if (selected) Color(0xFFC4D9FF) else Palette.Text, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal)
+        Text(
+            text, fontSize = 13.sp,
+            color = if (selected) Color(0xFFC4D9FF) else Palette.Text,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+        )
     }
 }
 
@@ -165,16 +173,16 @@ fun Dot(color: Color, size: Int = 10) {
 /** "Transcribing 42%" with a bar, while the phone works on this note. Shows nothing otherwise. */
 @Composable
 fun NoteProgress(r: Recording) {
-    val jobs by com.example.watchscribe.mobile.ai.ProcessWorker.jobs.collectAsState()
-    val j = jobs[r.id] ?: if (r.redo != null) com.example.watchscribe.mobile.ai.ProcessWorker.Companion.Job("Waiting to transcribe again", null) else return
+    val jobs by ProcessWorker.jobs.collectAsState()
+    val j = jobs[r.id] ?: if (r.redo != null) ProcessWorker.Companion.Job("Waiting to transcribe again", null) else return
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             j.stage + (j.progress?.let { " · ${(it * 100).toInt()}%" } ?: "…"),
             fontSize = 12.sp, color = Palette.Accent, fontWeight = FontWeight.Medium,
         )
         val mod = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
-        if (j.progress != null) androidx.compose.material3.LinearProgressIndicator(
+        if (j.progress != null) LinearProgressIndicator(
             progress = { j.progress ?: 0f }, modifier = mod, color = Palette.Accent, trackColor = Palette.Line,
-        ) else androidx.compose.material3.LinearProgressIndicator(modifier = mod, color = Palette.Accent, trackColor = Palette.Line)
+        ) else LinearProgressIndicator(modifier = mod, color = Palette.Accent, trackColor = Palette.Line)
     }
 }

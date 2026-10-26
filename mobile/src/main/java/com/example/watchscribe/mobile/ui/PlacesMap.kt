@@ -40,6 +40,7 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
+import androidx.compose.ui.graphics.Color
 
 /** A place on the map: average position of its notes. */
 data class PlacePin(val name: String, val lat: Double, val lon: Double, val count: Int, val color: Int)
@@ -170,9 +171,9 @@ fun PlacesMap(pins: List<PlacePin>, onPin: (String) -> Unit, modifier: Modifier 
             },
         )
         Text(
-            "© OpenStreetMap · OpenFreeMap", fontSize = 9.sp, color = androidx.compose.ui.graphics.Color(0xFF333333),
+            "© OpenStreetMap · OpenFreeMap", fontSize = 9.sp, color = Color(0xFF333333),
             modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
-                .background(androidx.compose.ui.graphics.Color(0xB3FFFFFF), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                .background(Color(0xB3FFFFFF), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
 }

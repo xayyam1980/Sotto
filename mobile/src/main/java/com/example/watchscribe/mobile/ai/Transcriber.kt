@@ -463,7 +463,12 @@ class Transcriber(private val ctx: Context) : AutoCloseable {
             val centroids = (0 until c).map { g ->
                 val dim = emb[0].size
                 val m = FloatArray(dim)
-                emb.forEachIndexed { i, e -> if (labels[i] == g) { val u = unit(e); val wt = (long[i].b - long[i].a).toFloat(); for (d in 0 until dim) m[d] += u[d] * wt } }
+                emb.forEachIndexed { i, e ->
+                    if (labels[i] != g) return@forEachIndexed
+                    val u = unit(e)
+                    val wt = (long[i].b - long[i].a).toFloat()
+                    for (d in 0 until dim) m[d] += u[d] * wt
+                }
                 unit(m)
             }
             lastCentroids = centroids

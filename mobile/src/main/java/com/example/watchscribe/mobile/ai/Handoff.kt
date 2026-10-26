@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.example.watchscribe.mobile.data.Exporter
 import com.example.watchscribe.mobile.data.Recording
+import com.example.watchscribe.mobile.data.Redact
 
 /**
  * Sends a note to the official Claude or Gemini app with a ready-made prompt,
@@ -32,7 +33,7 @@ object Handoff {
     }
 
     fun send(ctx: Context, app: App, note: Recording) {
-        val r = if (com.example.watchscribe.mobile.data.Redact.on(ctx)) com.example.watchscribe.mobile.data.Redact.recording(note) else note
+        val r = if (Redact.on(ctx)) Redact.recording(note) else note
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, prompt(r))
