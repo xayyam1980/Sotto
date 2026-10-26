@@ -1,7 +1,9 @@
 package com.example.watchscribe.mobile
 
 import com.example.watchscribe.mobile.ai.Gemma
-import com.example.watchscribe.mobile.ai.Transcriber
+import com.example.watchscribe.mobile.ai.Audio
+import com.example.watchscribe.mobile.ai.TextChecks
+import com.example.watchscribe.mobile.ai.Voices
 import com.example.watchscribe.mobile.data.Exporter
 import com.example.watchscribe.mobile.data.LocationLog
 import com.example.watchscribe.mobile.data.Recording
@@ -58,7 +60,7 @@ class SottoLogicTest {
     @Test fun wavHeaderGivesRightDuration() {
         val f = tone(3.0, 32_000, 0.3, File.createTempFile("tone", ".wav"))
         assertEquals(3.0, Wav.seconds(f), 0.01)
-        assertEquals(48_000, Transcriber.load16k(f).size) // 32 kHz -> 16 kHz
+        assertEquals(48_000, Audio.load16k(f).size) // 32 kHz -> 16 kHz
         val p = Wav.peaks(f, 16)
         assertEquals(16, p.size)
         assertTrue(p.all { it in 0f..1f })
@@ -72,21 +74,21 @@ class SottoLogicTest {
             val talking = (i / sr) % 3 < 2
             ((if (talking) 0.3 else 0.002) * sin(2 * PI * 200 * i / sr)).toFloat()
         }
-        val pieces = Transcriber.segment(speech)
+        val pieces = Audio.segment(speech)
         assertTrue("40 s should become several pieces", pieces.size >= 3)
         pieces.forEach { (a, b) -> assertTrue((b - a) / sr.toDouble() <= 14.01) }
         assertEquals(0, pieces.first().first)
         assertEquals(speech.size, pieces.last().second)
 
         val mostlySilent = FloatArray(sr * 30) { if (it in sr * 5 until sr * 8) (0.3 * sin(2.0 * PI * 200 * it / sr)).toFloat() else 0.0005f }
-        assertTrue("silent parts are dropped", Transcriber.segment(mostlySilent).size < 3)
-        assertTrue(Transcriber.segment(FloatArray(0)).isEmpty())
+        assertTrue("silent parts are dropped", Audio.segment(mostlySilent).size < 3)
+        assertTrue(Audio.segment(FloatArray(0)).isEmpty())
     }
 
     @Test fun loopGuardCatchesRepeatedText() {
-        assertTrue(Transcriber.looksLikeLoop("что я не знаю ".repeat(8)))
-        assertFalse(Transcriber.looksLikeLoop("We agreed to send the offer on Monday and review the budget next week with Anna."))
-        assertFalse(Transcriber.looksLikeLoop("да да да")) // short answers are fine
+        assertTrue(TextChecks.looksLikeLoop("что я не знаю ".repeat(8)))
+        assertFalse(TextChecks.looksLikeLoop("We agreed to send the offer on Monday and review the budget next week with Anna."))
+        assertFalse(TextChecks.looksLikeLoop("да да да")) // short answers are fine
     }
 
     // ---------- AI output parsing
@@ -139,7 +141,7 @@ class SottoLogicTest {
         val centers = counts.map { FloatArray(192) { r.nextGaussian().toFloat() }.let { v -> val n = kotlin.math.sqrt(v.sumOf { (it * it).toDouble() }); FloatArray(192) { (v[it] / n).toFloat() } } }
         return counts.flatMapIndexed { c, n -> List(n) { FloatArray(192) { (centers[c][it] + r.nextGaussian() * noise).toFloat() } } }
     }
-    private fun people(e: List<FloatArray>) = Transcriber.cluster(e, DoubleArray(e.size) { 1.0 + it % 5 }, -1).max() + 1
+    private fun people(e: List<FloatArray>) = Voices.cluster(e, DoubleArray(e.size) { 1.0 + it % 5 }, -1).max() + 1
 
     @Test fun countsSpeakersAutomatically() {
         for (seed in 1L..4L) for (noise in listOf(0.047, 0.065, 0.08)) {
@@ -152,13 +154,13 @@ class SottoLogicTest {
 
     @Test fun usesTheNumberTheUserChose() {
         val e = voices(7, listOf(20, 15), 0.05)
-        assertEquals(3, Transcriber.cluster(e, DoubleArray(e.size) { 1.0 }, 3).max() + 1)
-        assertEquals(1, Transcriber.cluster(e, DoubleArray(e.size) { 1.0 }, 1).max() + 1)
-        assertEquals(0, Transcriber.cluster(listOf(e[0]), doubleArrayOf(1.0), -1).single())
+        assertEquals(3, Voices.cluster(e, DoubleArray(e.size) { 1.0 }, 3).max() + 1)
+        assertEquals(1, Voices.cluster(e, DoubleArray(e.size) { 1.0 }, 1).max() + 1)
+        assertEquals(0, Voices.cluster(listOf(e[0]), doubleArrayOf(1.0), -1).single())
     }
 
     @Test fun speakerChangesInsideATurnAreSteadied() {
-        fun sm(vararg l: Int) = Transcriber.smoothLabels(l).toList()
+        fun sm(vararg l: Int) = Voices.smoothLabels(l).toList()
         assertEquals(listOf(0, 0, 0, 0, 0), sm(0, 0, 1, 0, 0))          // one odd window is noise
         assertEquals(listOf(0, 0, 0, 1, 1, 1), sm(0, 0, 0, 1, 1, 1))    // a real change is kept
         assertEquals(listOf(0, 0, 0, 0), sm(1, 0, 0, 0))
@@ -168,16 +170,16 @@ class SottoLogicTest {
 
     @Test fun namesTheLanguageOfALine() {
         val enPl = listOf("en", "pl")
-        assertEquals("pl", Transcriber.guessLanguage("Dzień dobry, wyślę ofertę w poniedziałek.", enPl))
-        assertEquals("en", Transcriber.guessLanguage("We will send the offer on Monday.", enPl))
-        assertEquals("en", Transcriber.guessLanguage("Tak, dobrze", enPl)) // no Polish letters: can't tell, English
-        assertEquals("ru", Transcriber.guessLanguage("Привет, как дела?", listOf("ru", "en")))
-        assertEquals("uk", Transcriber.guessLanguage("Привіт, як справи?", listOf("uk", "ru")))
+        assertEquals("pl", TextChecks.guessLanguage("Dzień dobry, wyślę ofertę w poniedziałek.", enPl))
+        assertEquals("en", TextChecks.guessLanguage("We will send the offer on Monday.", enPl))
+        assertEquals("en", TextChecks.guessLanguage("Tak, dobrze", enPl)) // no Polish letters: can't tell, English
+        assertEquals("ru", TextChecks.guessLanguage("Привет, как дела?", listOf("ru", "en")))
+        assertEquals("uk", TextChecks.guessLanguage("Привіт, як справи?", listOf("uk", "ru")))
     }
 
     @Test fun findsSoundAboveTheBackground() {
         val x = FloatArray(16_000 * 3) { i -> if (i in 16_000 until 32_000) (0.3 * sin(2 * PI * 200 * i / 16_000)).toFloat() else 0.001f }
-        val f = Transcriber.speechFrames(x)
+        val f = Audio.speechFrames(x)
         assertTrue(f[75]) // 1.5 s: tone
         assertFalse(f[10]) // 0.2 s: background
     }
@@ -227,12 +229,12 @@ class SottoLogicTest {
 
     @Test fun quietAudioAndConfusedLanguage() {
         val quiet = FloatArray(1000) { if (it == 10) 0.09f else 0.01f }
-        assertEquals(0.9f, Transcriber.normalize(quiet).max(), 1e-4f)
+        assertEquals(0.9f, Audio.normalize(quiet).max(), 1e-4f)
         val loud = FloatArray(10) { 0.8f }
-        assertTrue(Transcriber.normalize(loud) === loud) // loud audio untouched
-        assertTrue(Transcriber.mixedScripts("Y la pista dragona. Моя одежда."))
-        assertFalse(Transcriber.mixedScripts("Моя одежда отразит огонь."))
-        assertFalse(Transcriber.mixedScripts("We use Jira and Confluence."))
+        assertTrue(Audio.normalize(loud) === loud) // loud audio untouched
+        assertTrue(TextChecks.mixedScripts("Y la pista dragona. Моя одежда."))
+        assertFalse(TextChecks.mixedScripts("Моя одежда отразит огонь."))
+        assertFalse(TextChecks.mixedScripts("We use Jira and Confluence."))
     }
 
     @Test fun memoTitleIsShortToDo() {
