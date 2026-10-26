@@ -18,14 +18,15 @@ import kotlin.math.sqrt
  * 3. Rebuilds the audio with 50% overlap-add (sqrt-Hann windows).
  */
 object Denoiser {
-    private const val N = 1024          // FFT size (32 ms at 32 kHz)
-    private const val HOP = N / 2
     private const val OVERSUB = 1.4     // how aggressively to subtract noise (gentle: keeps quiet/far voices)
     private const val FLOOR = 0.12      // never cut a bin below -18 dB (keeps it natural)
     private const val SMOOTH = 0.5      // time smoothing of gains
 
     fun process(input: File, output: File) {
         val (rate, pcm) = readWav(input)
+        // ~32 ms frames whatever the sample rate (watch notes are 16 kHz now, older ones 32 kHz)
+        val N = if (rate <= 16_000) 512 else 1024
+        val HOP = N / 2
         if (pcm.size < N * 4) { input.copyTo(output, overwrite = true); return }
 
         val window = DoubleArray(N) { sqrt(0.5 - 0.5 * cos(2 * PI * it / N)) } // periodic sqrt-Hann
@@ -81,7 +82,7 @@ object Denoiser {
     }
 
     private fun spectrum(pcm: ShortArray, off: Int, w: DoubleArray, re: DoubleArray, im: DoubleArray) {
-        for (i in 0 until N) { re[i] = pcm[off + i] * w[i]; im[i] = 0.0 }
+        for (i in w.indices) { re[i] = pcm[off + i] * w[i]; im[i] = 0.0 }
         fft(re, im, inverse = false)
     }
 

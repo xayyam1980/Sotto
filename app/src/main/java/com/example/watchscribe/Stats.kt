@@ -60,6 +60,17 @@ object Stats {
         p(ctx).edit().putString("token", it).apply()
     }
 
+    /**
+     * True the first time a tile button id is seen. Tile ids carry the time the tile was drawn, so a
+     * real tap is always new, while an id the watch repeats on a later refresh is not.
+     */
+    @Synchronized
+    fun firstTimeTileClick(ctx: Context, id: String): Boolean {
+        if (p(ctx).getString("tileClick", null) == id) return false
+        p(ctx).edit().putString("tileClick", id).apply()
+        return true
+    }
+
     fun setLastPause(ctx: Context, minutes: Int) = p(ctx).edit().putInt("lastPause", minutes).apply()
     fun lastPause(ctx: Context): Int = p(ctx).getInt("lastPause", 60)
 

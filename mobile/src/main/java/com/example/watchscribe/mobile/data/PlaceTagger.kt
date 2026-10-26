@@ -55,7 +55,7 @@ object PlaceTagger {
             val ex = Executors.newSingleThreadExecutor()
             runCatching {
                 lm.getCurrentLocation(LocationManager.GPS_PROVIDER, cancel, ex) { got = it; latch.countDown() }
-                if (!latch.await(30, TimeUnit.SECONDS)) cancel.cancel()
+                if (!latch.await(20, TimeUnit.SECONDS)) cancel.cancel()
             }
             ex.shutdown()
             got?.let { return it }
@@ -77,9 +77,18 @@ object PlaceTagger {
             val end = start + ((RecordingStore.byId(id)?.seconds ?: 0.0) * 1000).toLong()
             val fresh = now - end < 10 * 60_000L
             val nets = if (fresh) wifi(ctx) else emptyList()
+            val known = nets.firstNotNullOfOrNull { wifiPlace(ctx, it.first) }
+            // GPS costs battery, so it's the last resort. First: a Wi-Fi already linked to a place on
+            // the map, then a location the phone already had from around that time.
+            if (known?.lat != null && known.lon != null) {
+                RecordingStore.setPlace(ctx, id, alias(ctx, known.name), known.lat, known.lon)
+                return
+            }
+            val logged = LocationLog.nearest(LocationLog.all(ctx), start, maxGap = 10 * 60_000L)
             // A note recorded just now: where the phone is now is where it was said
-            val live = if (fresh) locate(ctx)?.also { LocationLog.add(ctx, it) } else null
+            val live = if (logged == null && fresh) locate(ctx)?.also { LocationLog.add(ctx, it) } else null
             val fix = live?.let { it.latitude to it.longitude }
+                ?: logged?.let { it.lat to it.lon }
                 ?: LocationLog.nearest(LocationLog.all(ctx), start)?.let { it.lat to it.lon }
             if (fix != null) {
                 val name = describe(ctx, fix.first, fix.second)
@@ -88,7 +97,6 @@ object PlaceTagger {
                 return
             }
             // Indoors without GPS: recognise the place by its Wi-Fi
-            val known = nets.firstNotNullOfOrNull { wifiPlace(ctx, it.first) }
             when {
                 known != null -> RecordingStore.setPlace(ctx, id, alias(ctx, known.name), known.lat, known.lon)
                 nets.any { it.second.isNotBlank() } -> {

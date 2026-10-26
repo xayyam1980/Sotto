@@ -43,11 +43,14 @@ class RecorderService : Service() {
     companion object {
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"
+        /** Alarm at the end of a timed pause: wakes the sleeping service so listening resumes on time. */
+        private const val ACTION_WAKE = "wake"
         const val TAG = "Sotto"
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1
 
-        const val SAMPLE_RATE = 32_000
+        // 16 kHz: what the speech models use. Half the data of 32 kHz to write, process and send over Bluetooth
+        const val SAMPLE_RATE = 16_000
         private const val FRAME_SAMPLES = SAMPLE_RATE / 50   // 20 ms
         const val MAX_CHUNK_SEC = 300.0                      // 5 min
         private const val SILENCE_CLOSE_MS = 8_000L          // close chunk after 8 s quiet
@@ -89,7 +92,12 @@ class RecorderService : Service() {
         private val flushRequests = AtomicInteger(0)
         private val forgetCutoff = AtomicLong(0)
 
-        fun hold(on: Boolean) { holdMic = on }
+        fun hold(on: Boolean) { holdMic = on; poke() }
+
+        /** Wakes the worker thread when it waits during a pause (state changed). */
+        private fun poke() {
+            (appCtx as? RecorderService)?.let { svc -> synchronized(svc.signal) { svc.signal.notifyAll() } }
+        }
 
         /**
          * Forgets everything recorded in the last [minutes]: the open chunk is cut or dropped,
@@ -143,6 +151,7 @@ class RecorderService : Service() {
         }
 
         private fun stateChanged(ctx: Context) {
+            poke()
             updateTile(ctx)
             (appCtx as? RecorderService)?.refreshNotification()
         }
@@ -159,6 +168,7 @@ class RecorderService : Service() {
 
     @Volatile private var running = false
     @Volatile private var lastSyncAt = 0L
+    private val signal = Object()
     private var worker: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val clock = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -169,6 +179,10 @@ class RecorderService : Service() {
         if (intent?.action == ACTION_STOP) {
             wantListening = false
             stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_WAKE) {
+            if (running) poke() else stopSelf() // a late alarm after Stop: nothing to wake
             return START_NOT_STICKY
         }
         startRecording()
@@ -182,9 +196,10 @@ class RecorderService : Service() {
         startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         getSystemService(android.app.NotificationManager::class.java).cancel(9) // "Start listening?" from the phone
 
+        // Held only while the mic is open: during a pause the watch is allowed to sleep
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Sotto:rec")
-            .apply { acquire() }
+            .apply { setReferenceCounted(false); acquire() }
 
         running = true
         isRunning = true
@@ -213,13 +228,34 @@ class RecorderService : Service() {
                     pausedUntil = 0L
                     stateChanged(this)
                 } else {
-                    Thread.sleep(500)
+                    sleepUntil(until)
                 }
                 continue
             }
+            wakeLock?.let { if (!it.isHeld) it.acquire() }
             captureSession()
             maybeSync()
         }
+    }
+
+    /**
+     * Paused: lets the watch sleep (wake lock released) until the pause ends or something changes
+     * (resume, stop, a memo). A timed pause sets an alarm, so the watch wakes up to resume.
+     */
+    private fun sleepUntil(until: Long) {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        val wake = PendingIntent.getService(this, 2, Intent(this, RecorderService::class.java).setAction(ACTION_WAKE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val alarms = getSystemService(android.app.AlarmManager::class.java)
+        if (until != UNTIL_RESUME) alarms.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, until, wake)
+        synchronized(signal) {
+            if (running && pausedUntil == until && !holdMic) {
+                val left = if (until == UNTIL_RESUME) 0L else (until - System.currentTimeMillis()).coerceAtLeast(1)
+                try { signal.wait(left) } catch (_: InterruptedException) {}
+            }
+        }
+        alarms.cancel(wake)
+        wakeLock?.let { if (!it.isHeld) it.acquire() }
     }
 
     /** Regular sync for anything left waiting: every 10 min, every 30 min on low battery. */
@@ -390,6 +426,7 @@ class RecorderService : Service() {
 
     override fun onDestroy() {
         running = false
+        synchronized(signal) { signal.notifyAll() }
         worker?.join(2000)
         isRunning = false
         pausedUntil = 0L

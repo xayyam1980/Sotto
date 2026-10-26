@@ -64,12 +64,19 @@ class RecorderTileService : TileService() {
     }
 
     override fun onTileRequest(requestParams: RequestBuilders.TileRequest): ListenableFuture<TileBuilders.Tile> {
-        when (requestParams.currentState.lastClickableId) {
-            ID_MARK -> RecorderService.mark(this)
-            ID_RESUME -> RecorderService.resume(this)
-            ID_EXTEND -> RecorderService.extend(this, 15)
-            ID_SYNC -> ChunkSync.requestSync(this)
+        // Each drawing of the tile gets new button ids ("resume#<time>"). Some watches repeat the last
+        // clicked id on every later refresh; a repeat is ignored, so a tap acts exactly once
+        // (otherwise an old "Resume" tap would undo every later pause, and "Sync" would run every minute).
+        val clicked = requestParams.currentState.lastClickableId
+        if (clicked.isNotEmpty() && Stats.firstTimeTileClick(this, clicked)) {
+            when (clicked.substringBefore('#')) {
+                ID_MARK -> RecorderService.mark(this)
+                ID_RESUME -> RecorderService.resume(this)
+                ID_EXTEND -> RecorderService.extend(this, 15)
+                ID_SYNC -> ChunkSync.requestSync(this)
+            }
         }
+        render = System.currentTimeMillis()
         val device = requestParams.deviceConfiguration
         val alert = attention()
         val root = when {
@@ -86,6 +93,9 @@ class RecorderTileService : TileService() {
             .build()
         return Futures.immediateFuture(tile)
     }
+
+    /** When this drawing of the tile was made; part of every button id. */
+    private var render = 0L
 
     override fun onTileResourcesRequest(requestParams: RequestBuilders.ResourcesRequest): ListenableFuture<ResourceBuilders.Resources> {
         val b = ResourceBuilders.Resources.Builder().setVersion(RES)
@@ -204,7 +214,7 @@ class RecorderTileService : TileService() {
                 text("Not listening", Typography.TYPOGRAPHY_CAPTION2, MUTED),
             ))
             .setPrimaryChipContent(
-                Chip.Builder(this, launch(ToggleActivity::class.java.name), device)
+                Chip.Builder(this, launch(ToggleActivity::class.java.name, startOnly = true), device)
                     .setPrimaryLabelContent("Start listening")
                     .setIconContent("mic")
                     .setChipColors(ChipColors(ACCENT, ON_ACCENT))
@@ -221,7 +231,7 @@ class RecorderTileService : TileService() {
                 text(a.second, Typography.TYPOGRAPHY_CAPTION2, MUTED, maxLines = 3),
             ))
             .setPrimaryChipContent(
-                if (restart) CompactChip.Builder(this, "Restart", launch(ToggleActivity::class.java.name), device)
+                if (restart) CompactChip.Builder(this, "Restart", launch(ToggleActivity::class.java.name, startOnly = true), device)
                     .setChipColors(ChipColors(ACCENT, ON_ACCENT)).build()
                 else CompactChip.Builder(this, "Sync now", load(ID_SYNC), device)
                     .setChipColors(ChipColors(SURFACE, WHITE)).build()
@@ -232,14 +242,17 @@ class RecorderTileService : TileService() {
     // ---------------------------------------------------------------- pieces
 
     private fun load(id: String) = ModifiersBuilders.Clickable.Builder()
-        .setId(id).setOnClick(ActionBuilders.LoadAction.Builder().build()).build()
+        .setId("$id#$render").setOnClick(ActionBuilders.LoadAction.Builder().build()).build()
 
-    private fun launch(activity: String) = ModifiersBuilders.Clickable.Builder()
+    private fun launch(activity: String, startOnly: Boolean = false) = ModifiersBuilders.Clickable.Builder()
         .setId("launch_$activity")
         .setOnClick(ActionBuilders.LaunchAction.Builder()
             .setAndroidActivity(ActionBuilders.AndroidActivity.Builder()
                 .setPackageName(packageName).setClassName(activity)
                 .addKeyToExtraMapping(ToggleActivity.EXTRA_TOKEN, ActionBuilders.AndroidStringExtra.Builder().setValue(Stats.token(this)).build())
+                .apply {
+                    if (startOnly) addKeyToExtraMapping(ToggleActivity.EXTRA_START_ONLY, ActionBuilders.AndroidBooleanExtra.Builder().setValue(true).build())
+                }
                 .build())
             .build())
         .build()

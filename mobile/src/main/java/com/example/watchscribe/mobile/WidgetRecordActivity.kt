@@ -18,10 +18,17 @@ import com.example.watchscribe.mobile.ui.rememberConsentGate
  * see-through screen shows the consent reminder (if on), starts or stops recording, and closes.
  */
 class WidgetRecordActivity : ComponentActivity() {
+    companion object {
+        /** true = the button showed "■ Stop": only ever stop, never start. */
+        const val EXTRA_STOP = "stop"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (PhoneRecorder.live.value.running) {
-            PhoneRecorder.stop(this); finish(); return
+        if (intent.getBooleanExtra(EXTRA_STOP, false) || PhoneRecorder.live.value.running) {
+            if (PhoneRecorder.live.value.running) PhoneRecorder.stop(this)
+            SottoWidget.update(this) // the widget may have been out of date
+            finish(); return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "Allow the microphone in Sotto first", Toast.LENGTH_LONG).show()

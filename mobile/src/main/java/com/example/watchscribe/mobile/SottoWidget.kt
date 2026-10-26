@@ -48,9 +48,15 @@ class SottoWidget : AppWidgetProvider() {
 
             val running = PhoneRecorder.live.value.running
             v.setTextViewText(R.id.widget_record, if (running) "■ Stop" else "● Record")
+            // The button says what it will do, and does only that: a "■ Stop" left on the home screen
+            // after Android closed Sotto can't start a new recording.
             v.setOnClickPendingIntent(
                 R.id.widget_record,
-                PendingIntent.getActivity(ctx, 30, Intent(ctx, WidgetRecordActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), flags),
+                PendingIntent.getActivity(
+                    ctx, 30,
+                    Intent(ctx, WidgetRecordActivity::class.java).putExtra(WidgetRecordActivity.EXTRA_STOP, running).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    flags,
+                ),
             )
             v.setOnClickPendingIntent(R.id.widget_title, PendingIntent.getActivity(ctx, 31, Intent(ctx, MainActivity::class.java), flags))
 
