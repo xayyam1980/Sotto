@@ -60,10 +60,18 @@ private fun Label(t: String) {
 /** People, Keep audio, Weekly summary and Backup sections of the Settings sheet. */
 @Composable
 fun MoreSettings() {
+    PeopleSection()
+    KeepAudioSection()
+    WeeklySection()
+    BackupSection()
+}
+
+/** Known voices: learnt names, with Forget. */
+@Composable
+private fun PeopleSection() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ---- People
     val people by People.all.collectAsState()
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { People.load(ctx) } }
     var forget by remember { mutableStateOf<People.Person?>(null) }
@@ -96,8 +104,14 @@ fun MoreSettings() {
             containerColor = Palette.Surface,
         )
     }
+}
 
-    // ---- Keep audio
+/** How long audio is kept; transcripts always stay. */
+@Composable
+private fun KeepAudioSection() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var keep by remember { mutableStateOf(AiSettings.keepAudioDays(ctx)) }
     Label("Keep audio")
     Text("Transcripts and summaries are always kept. Deleting old audio saves space and keeps less personal data.", fontSize = 12.sp, color = Palette.Muted)
@@ -110,8 +124,13 @@ fun MoreSettings() {
             Text(label, fontSize = 14.sp)
         }
     }
+}
 
-    // ---- Weekly summary
+/** Friday reminder for the week's summary. */
+@Composable
+private fun WeeklySection() {
+    val ctx = LocalContext.current
+
     var weekly by remember { mutableStateOf(AiSettings.weeklySummary(ctx)) }
     Label("Weekly summary")
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -122,8 +141,14 @@ fun MoreSettings() {
         Switch(weekly, { weekly = it; AiSettings.setWeeklySummary(ctx, it) },
             colors = SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.OnAccent))
     }
+}
 
-    // ---- Backup
+/** Password-protected backup and restore. */
+@Composable
+private fun BackupSection() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var ask by remember { mutableStateOf<String?>(null) } // "backup" | "restore"
     var withAudio by remember { mutableStateOf(true) }
     var password by remember { mutableStateOf("") }

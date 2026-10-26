@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.watchscribe.mobile.data.Exporter
 import com.example.watchscribe.mobile.data.Recording
+import com.example.watchscribe.mobile.data.Seg
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
@@ -88,7 +89,6 @@ import kotlinx.coroutines.Dispatchers
 
 private val detailFmt = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecordingScreen(
     r: Recording,
@@ -99,27 +99,14 @@ fun RecordingScreen(
     onRename: (String) -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(0) }
-    val ctx = LocalContext.current
     var renaming by remember { mutableStateOf(false) }
     var seekReq by remember { mutableStateOf<Int?>(null) }
     var naming by remember { mutableStateOf<Int?>(null) }
+    val seek: (Double) -> Unit = { sec -> seekReq = (sec * 1000).toInt() }
 
     Scaffold(
         containerColor = Palette.Ground,
-        topBar = {
-            Row(Modifier.fillMaxWidth().padding(top = 32.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notes") }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { onStar(!r.starred) }) {
-                    Icon(
-                        if (r.starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (r.starred) "Unstar" else "Star",
-                        tint = if (r.starred) Palette.Amber else Palette.Text,
-                    )
-                }
-                IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, "Share or export") }
-                IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Delete") }
-            }
-        },
+        topBar = { NoteTopBar(r, onBack, onStar, onShare, onDelete) },
         bottomBar = {
             if (r.audioDeleted) Text(
                 "The audio was deleted to save space (Settings → Keep audio). The text stays.",
@@ -131,134 +118,182 @@ fun RecordingScreen(
             Modifier.fillMaxSize().padding(pad).padding(horizontal = 20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(Modifier.clickable { renaming = true }, verticalAlignment = Alignment.Top) {
-                Text(r.title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, lineHeight = 30.sp, modifier = Modifier.weight(1f))
-                Icon(Icons.Rounded.Edit, "Rename", Modifier.padding(start = 8.dp, top = 6.dp).size(18.dp), tint = Palette.Muted)
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                MetaChip("${detailFmt.format(r.start)} · ${Exporter.length(r.seconds)}", bg = Palette.Surface)
-                MetaChip(r.placeOrUnknown, bg = Palette.Surface, icon = true)
-            }
-            NoteProgress(r)
-            if (r.marks.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                r.marks.forEach { m ->
-                    Box(
-                        Modifier.height(30.dp).clip(RoundedCornerShape(15.dp)).background(Palette.AmberContainer)
-                            .clickable { seekReq = (m * 1000).toInt() }.padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("Marked ${Exporter.stamp(m)}", fontSize = 12.sp, color = Palette.Amber) }
-                }
-            }
+            NoteHeader(r, onRename = { renaming = true }, onSeek = seek)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf("Summary", "Transcript").forEachIndexed { i, label ->
                     SegmentedButton(selected = tab == i, onClick = { tab = i }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
                 }
             }
             val segs = r.segments
-            if (tab == 1 && !segs.isNullOrEmpty()) {
-                Text(
-                    "${langName(r.lang)} · ${r.transcriptText.split(Regex("\\s+")).size} words · tap a line to play, tap a name to say who it is",
-                    fontSize = 12.sp, color = Palette.Muted,
-                )
-                SpeakerControl(r)
-                segs.forEach { sg ->
-                    val marked = r.marks.any { it >= sg.t0 - 1 && it < sg.t1 }
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                            .background(if (marked) Palette.AmberContainer else Color.Transparent)
-                            .clickable { seekReq = (sg.t0 * 1000).toInt() }
-                            .padding(vertical = 6.dp, horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Column(Modifier.width(52.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                Exporter.stamp(sg.t0), fontSize = 12.sp, color = Palette.Accent,
-                                fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 3.dp),
-                            )
-                            sg.speaker?.let { spk ->
-                                Text(
-                                    r.who(spk)!!, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = Palette.PlaceTints[spk % Palette.PlaceTints.size],
-                                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { naming = spk },
-                                )
-                            }
-                        }
-                        Text(sg.text, fontSize = 15.sp, lineHeight = 22.sp, color = Color(0xFFDDE1E5), modifier = Modifier.weight(1f))
-                    }
-                }
-            } else if (tab == 0 && r.summary != null) {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.Surface).padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    SectionLabel("Summary")
-                    Text(r.summary, fontSize = 15.sp, lineHeight = 22.sp, color = Color(0xFFDDE1E5))
-                    if (r.speakers > 0) Text(
-                        (0 until r.speakers).joinToString(", ") { r.who(it)!! } + " · ${langName(r.lang)}",
-                        fontSize = 12.sp, color = Palette.Muted,
-                    )
-                }
-                if (!r.segments.isNullOrEmpty()) SpeakerControl(r)
-                if (r.actions.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SectionLabel("Action items")
-                    r.actions.forEach { a ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Surface).padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Text("•", color = Palette.Amber, fontSize = 15.sp)
-                            Text(a, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
-                            ActionButtons(r, a)
-                        }
-                    }
-                }
-            } else {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.Surface).padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    val (head, body) = when {
-                        segs == null -> "Not transcribed yet" to
-                            if (AiSettings.onlyWhileCharging(ctx)) "Sotto transcribes on this phone while it's charging. Use “Process now” on the Notes screen to start immediately."
-                            else "Sotto is transcribing on this phone. It appears here when ready."
-                        segs.isEmpty() -> "No speech found" to "No clear speech was found in this recording."
-                        else -> "Summary not ready" to "The transcript is ready. The summary is made on this phone after transcription (download Gemma in AI settings)."
-                    }
-                    Text(head, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Text(body, fontSize = 14.sp, lineHeight = 20.sp, color = Palette.Muted)
-                }
-                if (segs != null && segs.isEmpty()) SpeakerControl(r)
+            when {
+                tab == 1 && !segs.isNullOrEmpty() -> TranscriptTab(r, segs, onSeek = seek, onName = { naming = it })
+                tab == 0 && r.summary != null -> SummaryTab(r, r.summary)
+                else -> NotReadyCard(r)
             }
-
-            // Hand-off to your own Claude / Gemini app (uses your subscription there)
-            if (!segs.isNullOrEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Handoff.App.entries.forEach { app ->
-                    Box(
-                        Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(22.dp))
-                            .border(1.dp, Palette.Line, RoundedCornerShape(22.dp))
-                            .clickable { Handoff.send(ctx, app, r) },
-                        contentAlignment = Alignment.Center,
-                    ) { Text("Open in ${app.label}", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
-                }
-            }
+            if (!segs.isNullOrEmpty()) HandoffButtons(r)
             Spacer(Modifier.height(12.dp))
         }
     }
 
     naming?.let { spk -> NameSpeakerDialog(r, spk) { naming = null } }
+    if (renaming) RenameDialog(r, onRename) { renaming = false }
+}
 
-    if (renaming) {
-        var text by remember { mutableStateOf(if (r.customTitle) r.title else "") }
-        AlertDialog(
-            onDismissRequest = { renaming = false },
-            title = { Text("Rename note") },
-            text = { OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, placeholder = { Text(r.title) }) },
-            confirmButton = { TextButton(onClick = { if (text.isNotBlank()) onRename(text); renaming = false }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
-            containerColor = Palette.Surface,
+@Composable
+private fun NoteTopBar(r: Recording, onBack: () -> Unit, onStar: (Boolean) -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 32.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notes") }
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = { onStar(!r.starred) }) {
+            Icon(
+                if (r.starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (r.starred) "Unstar" else "Star",
+                tint = if (r.starred) Palette.Amber else Palette.Text,
+            )
+        }
+        IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, "Share or export") }
+        IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Delete") }
+    }
+}
+
+/** Title (tap to rename), date and place, processing progress and the marked moments. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NoteHeader(r: Recording, onRename: () -> Unit, onSeek: (Double) -> Unit) {
+    Row(Modifier.clickable(onClick = onRename), verticalAlignment = Alignment.Top) {
+        Text(r.title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, lineHeight = 30.sp, modifier = Modifier.weight(1f))
+        Icon(Icons.Rounded.Edit, "Rename", Modifier.padding(start = 8.dp, top = 6.dp).size(18.dp), tint = Palette.Muted)
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        MetaChip("${detailFmt.format(r.start)} · ${Exporter.length(r.seconds)}", bg = Palette.Surface)
+        MetaChip(r.placeOrUnknown, bg = Palette.Surface, icon = true)
+    }
+    NoteProgress(r)
+    if (r.marks.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        r.marks.forEach { m ->
+            Box(
+                Modifier.height(30.dp).clip(RoundedCornerShape(15.dp)).background(Palette.AmberContainer)
+                    .clickable { onSeek(m) }.padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("Marked ${Exporter.stamp(m)}", fontSize = 12.sp, color = Palette.Amber) }
+        }
+    }
+}
+
+/** Lines with time and speaker; tap a line to play it, tap a speaker to name them. */
+@Composable
+private fun TranscriptTab(r: Recording, segs: List<Seg>, onSeek: (Double) -> Unit, onName: (Int) -> Unit) {
+    Text(
+        "${langName(r.lang)} · ${r.transcriptText.split(Regex("\\s+")).size} words · tap a line to play, tap a name to say who it is",
+        fontSize = 12.sp, color = Palette.Muted,
+    )
+    SpeakerControl(r)
+    segs.forEach { sg ->
+        val marked = r.marks.any { it >= sg.t0 - 1 && it < sg.t1 }
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .background(if (marked) Palette.AmberContainer else Color.Transparent)
+                .clickable { onSeek(sg.t0) }
+                .padding(vertical = 6.dp, horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.width(52.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    Exporter.stamp(sg.t0), fontSize = 12.sp, color = Palette.Accent,
+                    fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 3.dp),
+                )
+                sg.speaker?.let { spk ->
+                    Text(
+                        r.who(spk)!!, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = Palette.PlaceTints[spk % Palette.PlaceTints.size],
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { onName(spk) },
+                    )
+                }
+            }
+            Text(sg.text, fontSize = 15.sp, lineHeight = 22.sp, color = Color(0xFFDDE1E5), modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/** Gemma's summary, who spoke, and the action items with calendar / task buttons. */
+@Composable
+private fun SummaryTab(r: Recording, summary: String) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.Surface).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SectionLabel("Summary")
+        Text(summary, fontSize = 15.sp, lineHeight = 22.sp, color = Color(0xFFDDE1E5))
+        if (r.speakers > 0) Text(
+            (0 until r.speakers).joinToString(", ") { r.who(it)!! } + " · ${langName(r.lang)}",
+            fontSize = 12.sp, color = Palette.Muted,
         )
     }
+    if (!r.segments.isNullOrEmpty()) SpeakerControl(r)
+    if (r.actions.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionLabel("Action items")
+        r.actions.forEach { a ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Surface).padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("•", color = Palette.Amber, fontSize = 15.sp)
+                Text(a, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+                ActionButtons(r, a)
+            }
+        }
+    }
+}
+
+/** Why there's nothing to show yet: not transcribed, no speech, or no summary. */
+@Composable
+private fun NotReadyCard(r: Recording) {
+    val ctx = LocalContext.current
+    val segs = r.segments
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.Surface).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val (head, body) = when {
+            segs == null -> "Not transcribed yet" to
+                if (AiSettings.onlyWhileCharging(ctx)) "Sotto transcribes on this phone while it's charging. Use “Process now” on the Notes screen to start immediately."
+                else "Sotto is transcribing on this phone. It appears here when ready."
+            segs.isEmpty() -> "No speech found" to "No clear speech was found in this recording."
+            else -> "Summary not ready" to "The transcript is ready. The summary is made on this phone after transcription (download Gemma in AI settings)."
+        }
+        Text(head, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(body, fontSize = 14.sp, lineHeight = 20.sp, color = Palette.Muted)
+    }
+    if (segs != null && segs.isEmpty()) SpeakerControl(r)
+}
+
+/** Hand-off to your own Claude / Gemini app (uses your subscription there). */
+@Composable
+private fun HandoffButtons(r: Recording) {
+    val ctx = LocalContext.current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Handoff.App.entries.forEach { app ->
+            Box(
+                Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(22.dp))
+                    .border(1.dp, Palette.Line, RoundedCornerShape(22.dp))
+                    .clickable { Handoff.send(ctx, app, r) },
+                contentAlignment = Alignment.Center,
+            ) { Text("Open in ${app.label}", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+        }
+    }
+}
+
+@Composable
+private fun RenameDialog(r: Recording, onRename: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(if (r.customTitle) r.title else "") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename note") },
+        text = { OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, placeholder = { Text(r.title) }) },
+        confirmButton = { TextButton(onClick = { if (text.isNotBlank()) onRename(text); onDismiss() }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        containerColor = Palette.Surface,
+    )
 }
 
 private fun langName(code: String?): String = when (code) {

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -104,7 +105,6 @@ fun LibraryScreen(
     val selecting = selection.isNotEmpty()
     var digest by remember { mutableStateOf<Pair<String, List<Recording>>?>(null) }
     var deleting by remember { mutableStateOf<Pair<String, List<Recording>>?>(null) }
-    var menuFor by remember { mutableStateOf<String?>(null) }
     val request by Digests.request.collectAsState()
     fun openWeek() {
         val since = Housekeeping.weekStart()
@@ -162,48 +162,14 @@ fun LibraryScreen(
             }
             groups.forEach { (label, list) ->
                 stickyHeader(key = "h_$label") {
-                    Row(
-                        Modifier.fillMaxWidth().background(Palette.Ground).padding(start = 4.dp, end = 4.dp, top = 14.dp, bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        if (selecting) {
-                            TextButton(onClick = { onSelectionChange(selection + list.map { it.id }) }) { Text("Select all", fontSize = 13.sp) }
-                        } else {
-                            Text(totalLabel(list), fontSize = 12.sp, color = Palette.Muted, fontFamily = FontFamily.Monospace)
-                            Box {
-                                IconButton(onClick = { menuFor = label }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Rounded.MoreVert, "Actions for $label", Modifier.size(20.dp), tint = Palette.Muted)
-                                }
-                                DropdownMenu(
-                                    expanded = menuFor == label, onDismissRequest = { menuFor = null },
-                                    containerColor = Palette.Surface,
-                                ) {
-                                    val isDay = opts.groupBy == GroupBy.DAY
-                                    DropdownMenuItem(
-                                        text = { Text(if (isDay) "Summary of the day" else "Summary of these notes") },
-                                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
-                                        onClick = { menuFor = null; digest = "$label · summary" to list },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Summary of this week") },
-                                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
-                                        onClick = { menuFor = null; openWeek() },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Select these notes") },
-                                        leadingIcon = { Icon(Icons.Rounded.CheckCircle, null) },
-                                        onClick = { menuFor = null; onSelectionChange(list.map { it.id }.toSet()) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(if (isDay) "Delete the day…" else "Delete these notes…", color = Palette.Danger) },
-                                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Palette.Danger) },
-                                        onClick = { menuFor = null; deleting = label to list },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    GroupHeader(
+                        label, list, selecting, isDay = opts.groupBy == GroupBy.DAY,
+                        onSelectAll = { onSelectionChange(selection + list.map { it.id }) },
+                        onSummary = { digest = "$label · summary" to list },
+                        onWeek = { openWeek() },
+                        onSelect = { onSelectionChange(list.map { it.id }.toSet()) },
+                        onDelete = { deleting = label to list },
+                    )
                 }
                 items(list, key = { it.id }) { r ->
                     RecordingCard(
@@ -226,6 +192,61 @@ fun LibraryScreen(
     deleting?.let { (label, notes) ->
         DeleteGroupDialog(label, notes.size, onConfirm = { deleting = null; onDelete(notes.map { it.id }) }, onDismiss = { deleting = null })
     }
+}
+
+/** A day (or place) heading with its total time and a ⋮ menu: summaries, select, delete. */
+@Composable
+private fun GroupHeader(
+    label: String,
+    list: List<Recording>,
+    selecting: Boolean,
+    isDay: Boolean,
+    onSelectAll: () -> Unit,
+    onSummary: () -> Unit,
+    onWeek: () -> Unit,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().background(Palette.Ground).padding(start = 4.dp, end = 4.dp, top = 14.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        if (selecting) TextButton(onClick = onSelectAll) { Text("Select all", fontSize = 13.sp) }
+        else MenuButton(label, list, isDay, onSummary, onWeek, onSelect, onDelete)
+    }
+}
+
+@Composable
+private fun MenuButton(
+    label: String, list: List<Recording>, isDay: Boolean,
+    onSummary: () -> Unit, onWeek: () -> Unit, onSelect: () -> Unit, onDelete: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(totalLabel(list), fontSize = 12.sp, color = Palette.Muted, fontFamily = FontFamily.Monospace)
+        Box {
+            IconButton(onClick = { menu = true }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Rounded.MoreVert, "Actions for $label", Modifier.size(20.dp), tint = Palette.Muted)
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Palette.Surface) {
+                val close = { menu = false }
+                MenuItem(if (isDay) "Summary of the day" else "Summary of these notes", Icons.Rounded.AutoAwesome) { close(); onSummary() }
+                MenuItem("Summary of this week", Icons.Rounded.AutoAwesome) { close(); onWeek() }
+                MenuItem("Select these notes", Icons.Rounded.CheckCircle) { close(); onSelect() }
+                MenuItem(if (isDay) "Delete the day…" else "Delete these notes…", Icons.Rounded.Delete, danger = true) { close(); onDelete() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuItem(text: String, icon: ImageVector, danger: Boolean = false, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(text, color = if (danger) Palette.Danger else Color.Unspecified) },
+        leadingIcon = { Icon(icon, null, tint = if (danger) Palette.Danger else LocalContentColor.current) },
+        onClick = onClick,
+    )
 }
 
 @Composable

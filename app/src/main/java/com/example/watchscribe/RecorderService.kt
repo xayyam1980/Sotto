@@ -270,44 +270,19 @@ class RecorderService : Service() {
     }
 
     /** Captures until paused, stopped, held for a memo, the battery mode changes, or the mic fails. */
-    @SuppressLint("MissingPermission") // checked before starting
     private fun captureSession() {
-        val minBuf = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val recorder = try {
-            AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
-                maxOf(minBuf, FRAME_SAMPLES * 2 * 10))
-        } catch (t: Throwable) {
-            micBusy(); return
-        }
-        if (recorder.state != AudioRecord.STATE_INITIALIZED) {
-            recorder.release(); micBusy(); return
-        }
-
+        val recorder = openMic() ?: return micBusy()
         val light = Battery.light(this)
         if (light != lightMode) { lightMode = light; updateTile(this) }
-        val effects = mutableListOf<AudioEffect>()
         // Light mode skips the extra effects: the phone cleans the audio anyway
-        if (!light && NoiseSuppressor.isAvailable()) {
-            NoiseSuppressor.create(recorder.audioSessionId)?.let { it.enabled = true; effects += it }
-        }
-        if (!light && AutomaticGainControl.isAvailable()) {
-            AutomaticGainControl.create(recorder.audioSessionId)?.let { it.enabled = true; effects += it }
-        }
-
+        val effects = if (light) emptyList() else audioEffects(recorder.audioSessionId)
         val hpf = HighPass(SAMPLE_RATE, 100.0)
         val vad = Vad()
-        val writer = WavChunkWriter(chunkDir(this), SAMPLE_RATE)
-        val marks = mutableListOf<Double>()
-        var markAtStart = false
-        val preroll = ArrayDeque<ShortArray>()
+        val chunk = Chunk()
         val frame = ShortArray(FRAME_SAMPLES) // reused: written to the file right away; the pre-roll keeps copies
-        var lastSpeechAt = 0L
-        var lastLogAt = 0L
         var lastTileAt = 0L
         var lastCheckAt = System.currentTimeMillis()
+        var lastLogAt = 0L
 
         recorder.startRecording()
         micOpen = true
@@ -327,55 +302,10 @@ class RecorderService : Service() {
                 noiseFloor = vad.noiseFloor
                 speaking = speech
 
-                // Marks: at the current second of an open chunk, else at the start of the next one
-                if (flushRequests.getAndSet(0) > 0) {
-                    // the phone asked: send now, even in battery saver
-                    if (writer.isOpen) closeChunk(writer, marks, syncNow = true) else ChunkSync.requestSync(this)
-                }
-                val cut = forgetCutoff.getAndSet(0)
-                if (cut > 0) {
-                    preroll.clear()
-                    if (writer.isOpen) {
-                        val keep = (cut - writer.openedAt) / 1000.0
-                        if (keep < Forget.MIN_KEEP) {
-                            writer.discard()
-                            marks.clear(); marksInChunk = 0; chunkSeconds = 0.0; markAtStart = false
-                            updateTile(this)
-                        } else {
-                            writer.truncate(keep)
-                            marks.removeAll { it > keep }
-                            closeChunk(writer, marks)
-                        }
-                    }
-                }
-                val m = markRequests.getAndSet(0)
-                if (m > 0) {
-                    if (writer.isOpen) repeat(m) { marks += writer.secondsWritten } else markAtStart = true
-                }
+                handleRequests(chunk)
+                chunk.add(frame, n, speech, now)
 
-                if (speech) {
-                    lastSpeechAt = now
-                    if (!writer.isOpen) {
-                        writer.open()
-                        preroll.forEach { writer.write(it, it.size) }
-                        preroll.clear()
-                        if (markAtStart) { marks += 0.0; markAtStart = false }
-                        marksInChunk = marks.size
-                        updateTile(this)
-                    }
-                    writer.write(frame, n)
-                } else if (writer.isOpen) {
-                    writer.write(frame, n)
-                    if (now - lastSpeechAt > SILENCE_CLOSE_MS) closeChunk(writer, marks)
-                } else {
-                    preroll.addLast(frame.copyOf(n))
-                    if (preroll.size > PREROLL_FRAMES) preroll.removeFirst()
-                }
-
-                if (writer.isOpen && writer.secondsWritten >= MAX_CHUNK_SEC) closeChunk(writer, marks)
-                chunkSeconds = if (writer.isOpen) writer.secondsWritten else 0.0
-
-                if (writer.isOpen && now - lastTileAt > (if (light) 180_000 else 60_000)) { lastTileAt = now; updateTile(this) }
+                if (chunk.isOpen && now - lastTileAt > (if (light) 180_000 else 60_000)) { lastTileAt = now; updateTile(this) }
                 if (now - lastCheckAt > 60_000) {
                     lastCheckAt = now
                     Battery.record(this)
@@ -391,7 +321,7 @@ class RecorderService : Service() {
             Log.e(TAG, "Capture crashed", t)
             lastError = "Crashed: ${t.message}"
         } finally {
-            closeChunk(writer, marks)
+            chunk.close()
             speaking = false
             level = 0.0
             effects.forEach { try { it.release() } catch (_: Throwable) {} }
@@ -399,6 +329,107 @@ class RecorderService : Service() {
             recorder.release()
             micOpen = false
         }
+    }
+
+    /** The microphone, or null if another app has it. */
+    @SuppressLint("MissingPermission") // checked before starting
+    private fun openMic(): AudioRecord? {
+        val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val recorder = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(minBuf, FRAME_SAMPLES * 2 * 10),
+            )
+        } catch (t: Throwable) {
+            return null
+        }
+        if (recorder.state != AudioRecord.STATE_INITIALIZED) { recorder.release(); return null }
+        return recorder
+    }
+
+    /** The watch's own noise suppression and automatic gain, where available. */
+    private fun audioEffects(session: Int): List<AudioEffect> {
+        val effects = mutableListOf<AudioEffect>()
+        if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(session)?.let { it.enabled = true; effects += it }
+        if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(session)?.let { it.enabled = true; effects += it }
+        return effects
+    }
+
+    /** Requests from the tile, the phone and Forget, applied between two frames. */
+    private fun handleRequests(chunk: Chunk) {
+        if (flushRequests.getAndSet(0) > 0) {
+            // the phone asked: send now, even in battery saver
+            if (chunk.isOpen) chunk.close(syncNow = true) else ChunkSync.requestSync(this)
+        }
+        val cut = forgetCutoff.getAndSet(0)
+        if (cut > 0) chunk.forget(cut)
+        val marks = markRequests.getAndSet(0)
+        if (marks > 0) chunk.mark(marks)
+    }
+
+    /** The note being saved: its audio file, its marks, and the last 300 ms of sound before speech starts. */
+    private inner class Chunk {
+        private val writer = WavChunkWriter(chunkDir(this@RecorderService), SAMPLE_RATE)
+        private val marks = mutableListOf<Double>()
+        private val preroll = ArrayDeque<ShortArray>()
+        private var markAtStart = false
+        private var lastSpeechAt = 0L
+        val isOpen get() = writer.isOpen
+
+        /** One 20 ms frame: speech opens a note; it ends after [SILENCE_CLOSE_MS] of quiet or [MAX_CHUNK_SEC]. */
+        fun add(frame: ShortArray, n: Int, speech: Boolean, now: Long) {
+            when {
+                speech -> {
+                    lastSpeechAt = now
+                    if (!isOpen) start()
+                    writer.write(frame, n)
+                }
+                isOpen -> {
+                    writer.write(frame, n)
+                    if (now - lastSpeechAt > SILENCE_CLOSE_MS) close()
+                }
+                else -> {
+                    preroll.addLast(frame.copyOf(n))
+                    if (preroll.size > PREROLL_FRAMES) preroll.removeFirst()
+                }
+            }
+            if (isOpen && writer.secondsWritten >= MAX_CHUNK_SEC) close()
+            chunkSeconds = if (isOpen) writer.secondsWritten else 0.0
+        }
+
+        private fun start() {
+            writer.open()
+            preroll.forEach { writer.write(it, it.size) }
+            preroll.clear()
+            if (markAtStart) { marks += 0.0; markAtStart = false }
+            marksInChunk = marks.size
+            updateTile(this@RecorderService)
+        }
+
+        /** Marks: at the current second of the open note, else at the start of the next one. */
+        fun mark(times: Int) {
+            if (isOpen) repeat(times) { marks += writer.secondsWritten } else markAtStart = true
+        }
+
+        /** Forget from [cutoff]: cut the open note there, or drop it when almost nothing would be left. */
+        fun forget(cutoff: Long) {
+            preroll.clear()
+            if (!isOpen) return
+            val keep = (cutoff - writer.openedAt) / 1000.0
+            if (keep < Forget.MIN_KEEP) {
+                writer.discard()
+                marks.clear(); markAtStart = false
+                marksInChunk = 0; chunkSeconds = 0.0
+                updateTile(this@RecorderService)
+            } else {
+                writer.truncate(keep)
+                marks.removeAll { it > keep }
+                close()
+            }
+        }
+
+        fun close(syncNow: Boolean = false) = closeChunk(writer, marks, syncNow)
     }
 
     private fun micBusy() {

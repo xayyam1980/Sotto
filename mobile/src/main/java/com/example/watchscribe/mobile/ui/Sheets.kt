@@ -166,71 +166,8 @@ fun ExportSheet(
                 CheckRow("Audio", "$totalMin min", opt.audio) { opt = opt.copy(audio = it) }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionLabel("Format")
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    NoteFormat.entries.forEachIndexed { i, f ->
-                        SegmentedButton(
-                            selected = opt.format == f,
-                            onClick = { opt = opt.copy(format = f) },
-                            shape = SegmentedButtonDefaults.itemShape(i, NoteFormat.entries.size),
-                            enabled = opt.notes,
-                        ) { Text(f.label) }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Audio", fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Pill("Clean · WAV", opt.cleanAudio, { opt = opt.copy(cleanAudio = true) })
-                    Spacer(Modifier.size(6.dp))
-                    Pill("Original · WAV", !opt.cleanAudio, { opt = opt.copy(cleanAudio = false) })
-                }
-                Row(
-                    Modifier.fillMaxWidth().height(56.dp).toggleable(value = opt.hidePersonal, onValueChange = {
-                        opt = opt.copy(hidePersonal = it); Redact.setOn(ctx, it)
-                    }, role = Role.Switch),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Hide personal details", fontSize = 14.sp)
-                        Text("E-mails, IBANs, phone and card numbers become [email], [IBAN], [number]", fontSize = 12.sp, color = Palette.Muted)
-                    }
-                    Switch(checked = opt.hidePersonal, onCheckedChange = null)
-                }
-                if (recs.size > 1) Row(
-                    Modifier.fillMaxWidth().height(44.dp)
-                        .toggleable(value = opt.onePerNote, onValueChange = { opt = opt.copy(onePerNote = it) }, role = Role.Switch),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("One file per note", fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Switch(checked = opt.onePerNote, onCheckedChange = null)
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionLabel("Send to")
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    modifier = Modifier.height(146.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    userScrollEnabled = false,
-                ) {
-                    items(Dest.entries.toList()) { d ->
-                        Column(
-                            Modifier.height(68.dp).clip(RoundedCornerShape(20.dp)).background(Palette.Surface2)
-                                .clickable(enabled = !nothing) { onSend(d, opt) },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
-                        ) {
-                            Box(
-                                Modifier.size(32.dp).clip(RoundedCornerShape(12.dp)).background(Palette.AccentContainer),
-                                contentAlignment = Alignment.Center,
-                            ) { Text(d.mark, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Palette.Accent) }
-                            Text(d.label, fontSize = 11.sp, maxLines = 1)
-                        }
-                    }
-                }
-            }
+            FormatOptions(opt, several = recs.size > 1) { opt = it }
+            Destinations(enabled = !nothing) { d -> onSend(d, opt) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
@@ -246,6 +183,81 @@ fun ExportSheet(
                     shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Palette.Accent, contentColor = Palette.OnAccent),
                 ) { Text("Share · $size", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+            }
+        }
+    }
+}
+
+/** Note format, clean or original audio, hiding personal details, one file per note. */
+@Composable
+private fun FormatOptions(opt: ExportOptions, several: Boolean, onChange: (ExportOptions) -> Unit) {
+    val ctx = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionLabel("Format")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            NoteFormat.entries.forEachIndexed { i, f ->
+                SegmentedButton(
+                    selected = opt.format == f,
+                    onClick = { onChange(opt.copy(format = f)) },
+                    shape = SegmentedButtonDefaults.itemShape(i, NoteFormat.entries.size),
+                    enabled = opt.notes,
+                ) { Text(f.label) }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Audio", fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Pill("Clean · WAV", opt.cleanAudio, { onChange(opt.copy(cleanAudio = true)) })
+            Spacer(Modifier.size(6.dp))
+            Pill("Original · WAV", !opt.cleanAudio, { onChange(opt.copy(cleanAudio = false)) })
+        }
+        Row(
+            Modifier.fillMaxWidth().height(56.dp).toggleable(value = opt.hidePersonal, onValueChange = {
+                onChange(opt.copy(hidePersonal = it)); Redact.setOn(ctx, it)
+            }, role = Role.Switch),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Hide personal details", fontSize = 14.sp)
+                Text("E-mails, IBANs, phone and card numbers become [email], [IBAN], [number]", fontSize = 12.sp, color = Palette.Muted)
+            }
+            Switch(checked = opt.hidePersonal, onCheckedChange = null)
+        }
+        if (several) Row(
+            Modifier.fillMaxWidth().height(44.dp)
+                .toggleable(value = opt.onePerNote, onValueChange = { onChange(opt.copy(onePerNote = it)) }, role = Role.Switch),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("One file per note", fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Switch(checked = opt.onePerNote, onCheckedChange = null)
+        }
+    }
+}
+
+/** The apps to send to, as a grid of buttons. */
+@Composable
+private fun Destinations(enabled: Boolean, onPick: (Dest) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionLabel("Send to")
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            modifier = Modifier.height(146.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            userScrollEnabled = false,
+        ) {
+            items(Dest.entries.toList()) { d ->
+                Column(
+                    Modifier.height(68.dp).clip(RoundedCornerShape(20.dp)).background(Palette.Surface2)
+                        .clickable(enabled = enabled) { onPick(d) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+                ) {
+                    Box(
+                        Modifier.size(32.dp).clip(RoundedCornerShape(12.dp)).background(Palette.AccentContainer),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(d.mark, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Palette.Accent) }
+                    Text(d.label, fontSize = 11.sp, maxLines = 1)
+                }
             }
         }
     }
