@@ -115,7 +115,8 @@ class PhoneRecorder : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            running = false
+            // not recording (e.g. a second Stop tap): don't leave an idle service behind
+            if (!running) stopSelf() else running = false
             return START_NOT_STICKY
         }
         if (running) return START_NOT_STICKY

@@ -265,6 +265,7 @@ class RecorderService : Service() {
         val marks = mutableListOf<Double>()
         var markAtStart = false
         val preroll = ArrayDeque<ShortArray>()
+        val frame = ShortArray(FRAME_SAMPLES) // reused: written to the file right away; the pre-roll keeps copies
         var lastSpeechAt = 0L
         var lastLogAt = 0L
         var lastTileAt = 0L
@@ -276,7 +277,6 @@ class RecorderService : Service() {
         Log.i(TAG, "Capture started")
         try {
             while (running && pausedUntil == 0L && !holdMic) {
-                val frame = ShortArray(FRAME_SAMPLES)
                 val n = recorder.read(frame, 0, FRAME_SAMPLES)
                 if (n < 0) { micBusy(); break }
                 if (n == 0) continue
@@ -291,7 +291,8 @@ class RecorderService : Service() {
 
                 // Marks: at the current second of an open chunk, else at the start of the next one
                 if (flushRequests.getAndSet(0) > 0) {
-                    if (writer.isOpen) closeChunk(writer, marks) else ChunkSync.requestSync(this)
+                    // the phone asked: send now, even in battery saver
+                    if (writer.isOpen) closeChunk(writer, marks, syncNow = true) else ChunkSync.requestSync(this)
                 }
                 val cut = forgetCutoff.getAndSet(0)
                 if (cut > 0) {
@@ -369,7 +370,7 @@ class RecorderService : Service() {
         repeat(20) { if (running && pausedUntil == 0L && !holdMic) Thread.sleep(500) }
     }
 
-    private fun closeChunk(writer: WavChunkWriter, marks: MutableList<Double>) {
+    private fun closeChunk(writer: WavChunkWriter, marks: MutableList<Double>, syncNow: Boolean = false) {
         if (!writer.isOpen) return
         val seconds = writer.secondsWritten
         val file = writer.close()
@@ -384,7 +385,7 @@ class RecorderService : Service() {
         chunkSeconds = 0.0
         updateTile(this)
         // On low battery chunks wait for the next regular sync (every 30 min) instead of going one by one
-        if (!lightMode) ChunkSync.requestSync(this)
+        if (!lightMode || syncNow) ChunkSync.requestSync(this)
     }
 
     override fun onDestroy() {

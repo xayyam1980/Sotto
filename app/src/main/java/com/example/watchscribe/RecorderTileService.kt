@@ -71,8 +71,9 @@ class RecorderTileService : TileService() {
             ID_SYNC -> ChunkSync.requestSync(this)
         }
         val device = requestParams.deviceConfiguration
+        val alert = attention()
         val root = when {
-            attention() != null -> attentionLayout(device, attention()!!)
+            alert != null -> attentionLayout(device, alert)
             !RecorderService.isRunning -> offLayout(device)
             RecorderService.isPaused -> pausedLayout(device)
             RecorderService.chunkSeconds > 0 -> capturingLayout(device)

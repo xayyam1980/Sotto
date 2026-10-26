@@ -9,17 +9,33 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.flow
+import java.util.concurrent.Semaphore
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.max
 
-/** Gemma 4 on the phone (LiteRT-LM): note summaries and Ask your notes. */
+/**
+ * Gemma 4 on the phone (LiteRT-LM): note summaries and Ask your notes.
+ *
+ * The model is used by one thing at a time (background summaries, Ask, day summaries): the others
+ * wait their turn. Unloading waits too, so the model is never freed under an answer that's still coming.
+ */
 object Gemma {
     private const val TAG = "SottoGemma"
     private var engine: Engine? = null
     private var loadedPath: String? = null
+    private val turn = Semaphore(1, true)
+    @Volatile private var unloadWhenFree = false
+
+    /** Runs [block] while holding the model; frees it afterwards if an unload was asked for meanwhile. */
+    private inline fun <T> withModel(block: () -> T): T {
+        turn.acquire()
+        try { return block() } finally {
+            if (unloadWhenFree) { unloadWhenFree = false; closeEngine() }
+            turn.release()
+        }
+    }
 
     data class Summary(val title: String, val summary: String, val actions: List<String>)
 
@@ -37,9 +53,15 @@ object Gemma {
         return e
     }
 
-    /** Frees the ~2 GB the model uses. */
-    @Synchronized
+    /** Frees the ~2 GB the model uses: now if it's free, else as soon as the current answer is done. */
     fun unload() {
+        if (turn.tryAcquire()) {
+            try { closeEngine() } finally { turn.release() }
+        } else unloadWhenFree = true
+    }
+
+    @Synchronized
+    private fun closeEngine() {
         runCatching { engine?.close() }
         engine = null
         loadedPath = null
@@ -67,8 +89,10 @@ object Gemma {
         """.trimIndent()
         val text = transcript.take(12_000) // keeps the prompt small enough to be quick on a phone
         return try {
-            conversation(ctx, system, 0.2).use { conv ->
-                parse(conv.sendMessage("Transcript:\n$text").toString())
+            withModel {
+                conversation(ctx, system, 0.2).use { conv ->
+                    parse(conv.sendMessage("Transcript:\n$text").toString())
+                }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Summary failed", t)
@@ -108,11 +132,7 @@ object Gemma {
                 append(block); used += block.length
             }
         }
-        val conv = conversation(ctx, system, 0.3)
-        var acc = ""
-        return conv.sendMessageAsync("Notes:\n$context\nQuestion: $question")
-            .map { m -> acc += m.toString(); acc }
-            .onCompletion { runCatching { conv.close() } }
+        return stream(ctx, system, 0.3, "Notes:\n$context\nQuestion: $question")
     }
 
     /**
@@ -140,10 +160,24 @@ object Gemma {
                 append(block)
             }
         }
-        val conv = conversation(ctx, system, 0.2)
-        var acc = ""
-        return conv.sendMessageAsync("Notes:\n$context")
-            .map { m -> acc += m.toString(); acc }
-            .onCompletion { runCatching { conv.close() } }
+        return stream(ctx, system, 0.2, "Notes:\n$context")
+    }
+
+    /**
+     * Streams the growing answer. The model is taken only when the flow is collected (on a background
+     * dispatcher) and given back when it ends or is cancelled, e.g. when the user leaves the screen.
+     */
+    private fun stream(ctx: Context, system: String, temperature: Double, message: String): Flow<String> = flow {
+        turn.acquire()
+        try {
+            val conv = conversation(ctx, system, temperature)
+            try {
+                val acc = StringBuilder()
+                conv.sendMessageAsync(message).collect { m -> acc.append(m.toString()); emit(acc.toString()) }
+            } finally { runCatching { conv.close() } }
+        } finally {
+            if (unloadWhenFree) { unloadWhenFree = false; closeEngine() }
+            turn.release()
+        }
     }
 }

@@ -27,12 +27,35 @@ object RecordingStore {
     private fun metaDir(ctx: Context) = File(ctx.filesDir, "meta").apply { mkdirs() }
     private fun trashDir(ctx: Context) = File(ctx.filesDir, "trash").apply { mkdirs() }
 
+    /**
+     * Notes already read, with a stamp of their files. A refresh only re-reads notes whose files
+     * changed, instead of parsing every note's JSON again after each small edit.
+     */
+    private val cache = HashMap<String, Pair<String, Recording>>()
+
+    private fun stamp(ctx: Context, f: File): String {
+        val m = File(metaDir(ctx), "${f.name}.json")
+        val raw = File(rawDir(ctx), f.name)
+        return "${f.length()}:${f.lastModified()}:${m.length()}:${m.lastModified()}:${raw.exists()}"
+    }
+
     @Synchronized
     fun refresh(ctx: Context) {
         val files = chunkDir(ctx).listFiles { f -> f.name.endsWith(".wav") }.orEmpty()
-        _items.value = files.map { load(ctx, it) }.sortedByDescending { it.start }
+        val seen = HashSet<String>()
+        _items.value = files.map { f ->
+            seen += f.name
+            val st = stamp(ctx, f)
+            cache[f.name]?.takeIf { it.first == st }?.second
+                ?: load(ctx, f).also { cache[f.name] = stamp(ctx, f) to it }
+        }.sortedByDescending { it.start }
+        cache.keys.retainAll(seen)
         runCatching { com.example.watchscribe.mobile.SottoWidget.update(ctx) }
     }
+
+    /** Forgets what was read, so the next refresh reads every note again (after a restore). */
+    @Synchronized
+    fun invalidate() = cache.clear()
 
     private fun load(ctx: Context, f: File): Recording {
         val id = f.name
@@ -80,7 +103,6 @@ object RecordingStore {
             peaks = List(peaksJson.length()) { peaksJson.getDouble(it).toFloat() },
             segments = segs,
             lang = tr?.optString("lang", "")?.ifBlank { null },
-            sync = meta.optString("sync", "").ifBlank { null },
             marks = meta.optJSONArray("marks")?.let { a -> List(a.length()) { a.getDouble(it) } } ?: emptyList(),
             summary = ai?.optString("summary", "")?.ifBlank { null },
             actions = ai?.optJSONArray("actions")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
@@ -93,7 +115,9 @@ object RecordingStore {
         )
     }
 
+    @Synchronized
     private fun editMeta(ctx: Context, id: String, change: (JSONObject) -> Unit) {
+        cache.remove(id)
         val metaFile = File(metaDir(ctx), "$id.json")
         val meta = if (metaFile.exists()) runCatching { JSONObject(metaFile.readText()) }.getOrDefault(JSONObject()) else JSONObject()
         change(meta)
@@ -152,11 +176,6 @@ object RecordingStore {
         com.example.watchscribe.mobile.ai.ProcessWorker.schedule(ctx)
     }
 
-    fun setSync(ctx: Context, id: String, state: String?) {
-        editMeta(ctx, id) { if (state != null) it.put("sync", state) else it.remove("sync") }
-        refresh(ctx)
-    }
-
     fun setTranscript(
         ctx: Context, id: String, lang: String, segments: List<Seg>, speakers: Int, speakerError: String? = null,
         voices: List<FloatArray>? = null,
@@ -180,7 +199,7 @@ object RecordingStore {
                         old.optJSONArray("manual")?.let { put("manual", it) }
                     }
                 })
-            m.remove("sync")
+            m.remove("sync") // left over from older versions
             m.remove("redo")
         }
         refresh(ctx)
@@ -226,7 +245,9 @@ object RecordingStore {
     }
 
     /** Re-applies the known people to every note (names the user set by hand stay). */
+    @Synchronized
     fun rematchAll(ctx: Context) {
+        cache.clear()
         val people = People.load(ctx)
         metaDir(ctx).listFiles { f -> f.name.endsWith(".json") }.orEmpty().forEach { f ->
             runCatching {

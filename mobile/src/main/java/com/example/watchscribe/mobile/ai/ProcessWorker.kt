@@ -54,7 +54,6 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             )
         }
 
-        /** Start right away, even on battery. A run in progress picks up new work itself. */
         /** "To-do: Call Anna about the invoice" from what was said in a note to self. */
         internal fun memoTitle(said: String): String {
             val t = said.trim().trimEnd('.', '!', '?').replaceFirstChar { it.uppercase() }
@@ -62,6 +61,7 @@ class ProcessWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             return "To-do: $short"
         }
 
+        /** Start right away, even on battery. A run in progress picks up new work itself. */
         fun runNow(ctx: Context) {
             val running = runCatching {
                 WorkManager.getInstance(ctx).getWorkInfosForUniqueWork(WORK).get().any { it.state == androidx.work.WorkInfo.State.RUNNING }

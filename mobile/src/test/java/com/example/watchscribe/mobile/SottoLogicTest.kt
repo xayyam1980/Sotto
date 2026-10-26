@@ -97,7 +97,7 @@ class SottoLogicTest {
     private fun rec(id: String, start: Long, sec: Double, place: String? = null, starred: Boolean = false, text: String? = null) = Recording(
         id = id, clean = File(id), raw = null, start = start, seconds = sec, sizeBytes = 0, title = "Note $id", customTitle = false,
         starred = starred, place = place, lat = null, lon = null, peaks = emptyList(),
-        segments = text?.let { listOf(Seg(0.0, sec, it)) }, lang = null, sync = null, marks = emptyList(),
+        segments = text?.let { listOf(Seg(0.0, sec, it)) }, lang = null, marks = emptyList(),
         summary = null, actions = emptyList(), speakers = 0,
     )
 

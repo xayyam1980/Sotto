@@ -11,6 +11,7 @@ import com.example.watchscribe.mobile.data.WatchSync
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import java.io.File
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
@@ -29,6 +30,11 @@ class ChunkReceiverService : WearableListenerService() {
             path.substringAfter('?', "").split('&').filter { '=' in it }
                 .associate { it.substringBefore('=') to it.substringAfter('=') }
         private const val MAX_BYTES = 200L * 1024 * 1024 // a 5-min watch chunk is ~19 MB
+        /**
+         * Finding the place can wait up to 30 s for GPS. It runs here, one note at a time, so this
+         * service is free for the watch's next note straight away (the watch gives up after 15 s).
+         */
+        private val after = Executors.newSingleThreadExecutor()
     }
 
     override fun onMessageReceived(event: MessageEvent) {
@@ -101,8 +107,11 @@ class ChunkReceiverService : WearableListenerService() {
             RecordingStore.refresh(this)
             if (marks.isNotEmpty()) RecordingStore.setMarks(this, name, marks)
             if (memo) RecordingStore.setMemo(this, name)
-            PlaceTagger.tag(this, name, RecordingStore.byId(name)?.start ?: System.currentTimeMillis())
-            ProcessWorker.schedule(this)
+            val app = applicationContext
+            after.execute {
+                runCatching { PlaceTagger.tag(app, name, RecordingStore.byId(name)?.start ?: System.currentTimeMillis()) }
+                ProcessWorker.schedule(app)
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to receive $name", t)
             part.delete()

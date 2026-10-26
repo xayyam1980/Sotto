@@ -17,9 +17,8 @@ data class Recording(
     val lat: Double?,
     val lon: Double?,
     val peaks: List<Float>,      // 0..1 waveform overview
-    val segments: List<Seg>?,    // transcript from the Mac, null until ready
+    val segments: List<Seg>?,    // transcript, null until ready
     val lang: String?,
-    val sync: String?,           // null | "uploaded" | "failed"
     val marks: List<Double>,     // seconds bookmarked on the watch
     val summary: String?,        // AI summary (on-phone Gemma)
     val actions: List<String>,   // AI action items

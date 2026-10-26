@@ -43,7 +43,7 @@ class ScreenshotsTest {
         id = "chunk_sample_$id.wav", clean = File("sample_$id.wav"), raw = null, start = now - minutesAgo * 60_000, seconds = sec,
         sizeBytes = 0, title = title, customTitle = false, starred = starred, place = place, lat = null, lon = null,
         peaks = List(64) { i -> (0.25f + 0.7f * kotlin.math.abs(kotlin.math.sin(i * 0.37 + id)).toFloat()) },
-        segments = segs, lang = "en", sync = null, marks = marks, summary = summary, actions = actions,
+        segments = segs, lang = "en", marks = marks, summary = summary, actions = actions,
         speakers = segs?.mapNotNull { it.speaker }?.distinct()?.size ?: 0,
         names = names,
     )

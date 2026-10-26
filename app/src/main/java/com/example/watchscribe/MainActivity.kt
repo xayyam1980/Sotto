@@ -43,6 +43,10 @@ class MainActivity : Activity() {
     private lateinit var syncChip: TextView
 
     private val ui = Handler(Looper.getMainLooper())
+    private var waiting = 0
+    private var waitingAt = 0L
+    private var lastPaused: Boolean? = null
+    private var lastMarked: Boolean? = null
     private val tick = object : Runnable {
         override fun run() { refresh(); ui.postDelayed(this, 300) }
     }
@@ -103,7 +107,7 @@ class MainActivity : Activity() {
             background = pill(Color.parseColor("#17191D"), 14)
             setPadding(dp(12), dp(5), dp(12), dp(5))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
-            setOnClickListener { ChunkSync.requestSync(this@MainActivity) }
+            setOnClickListener { ChunkSync.requestSync(this@MainActivity); waitingAt = 0L }
         }
 
         setContentView(LinearLayout(this).apply {
@@ -133,7 +137,8 @@ class MainActivity : Activity() {
         val paused = RecorderService.isPaused
         val capturing = on && !paused && RecorderService.chunkSeconds > 0
         val (sec, notes) = Stats.today(this)
-        val waiting = RecorderService.savedChunks(this).size
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - waitingAt > 3_000) { waitingAt = nowMs; waiting = RecorderService.savedChunks(this).size }
         val err = RecorderService.lastError
 
         when {
@@ -163,17 +168,23 @@ class MainActivity : Activity() {
         meter.layoutParams = (meter.layoutParams as FrameLayout.LayoutParams).apply { width = (dp(110) * lvl).toInt() }
         meter.requestLayout()
 
-        pauseBtn.setImageResource(if (paused) R.drawable.ic_play else R.drawable.ic_pause)
-        pauseBtn.background = pill(if (paused) accent else surface, 26)
-        pauseBtn.imageTintList = ColorStateList.valueOf(if (paused) onAccent else white)
-        pauseBtn.contentDescription = if (paused) "Resume" else "Pause"
+        if (lastPaused != paused) {
+            lastPaused = paused
+            pauseBtn.setImageResource(if (paused) R.drawable.ic_play else R.drawable.ic_pause)
+            pauseBtn.background = pill(if (paused) accent else surface, 26)
+            pauseBtn.imageTintList = ColorStateList.valueOf(if (paused) onAccent else white)
+            pauseBtn.contentDescription = if (paused) "Resume" else "Pause"
+        }
 
         val marked = RecorderService.marksInChunk > 0
         markBtn.isEnabled = on && !paused
         markBtn.alpha = if (markBtn.isEnabled) 1f else 0.35f
-        markBtn.setImageResource(if (marked) R.drawable.ic_mark_filled else R.drawable.ic_mark)
-        markBtn.background = pill(if (marked) amber else accent, 26)
-        markBtn.imageTintList = ColorStateList.valueOf(if (marked) Color.parseColor("#2E2104") else onAccent)
+        if (lastMarked != marked) {
+            lastMarked = marked
+            markBtn.setImageResource(if (marked) R.drawable.ic_mark_filled else R.drawable.ic_mark)
+            markBtn.background = pill(if (marked) amber else accent, 26)
+            markBtn.imageTintList = ColorStateList.valueOf(if (marked) Color.parseColor("#2E2104") else onAccent)
+        }
 
         if (waiting == 0) {
             syncChip.text = "✓ All synced"; syncChip.setTextColor(green)
