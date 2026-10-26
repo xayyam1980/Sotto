@@ -5,6 +5,8 @@ import java.io.RandomAccessFile
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.tanh
 
 /**
  * Writes mono PCM16 audio into timestamped WAV files.
@@ -40,7 +42,7 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
         val f = File(dir, "chunk_$stamp.wav.part")
         raf = RandomAccessFile(f, "rw").apply {
             setLength(0)
-            write(ByteArray(44)) // header placeholder, filled on close
+            write(ByteArray(Wav.HEADER)) // header placeholder, filled on close
         }
         partFile = f
         dataBytes = 0
@@ -54,7 +56,7 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
             val n = minOf(length - i, buf.size / 2)
             for (j in 0 until n) {
                 val s = samples[i + j].toInt()
-                hist[(kotlin.math.abs(s) shr 5).coerceAtMost(1023)]++
+                hist[(abs(s) shr 5).coerceAtMost(1023)]++
                 buf[2 * j] = (s and 0xFF).toByte()
                 buf[2 * j + 1] = ((s shr 8) and 0xFF).toByte()
             }
@@ -79,8 +81,8 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
         val r = raf ?: return
         val keep = ((seconds * sampleRate).toLong() * 2).coerceIn(0, dataBytes)
         dataBytes = keep
-        r.setLength(44 + keep)
-        r.seek(44 + keep)
+        r.setLength(Wav.HEADER + keep)
+        r.seek(Wav.HEADER + keep)
     }
 
     /** Finalizes the file and returns it. Chunks shorter than [minSeconds] are discarded (returns null). */
@@ -95,7 +97,7 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
         }
         normalize(r)
         r.seek(0)
-        r.write(header(dataBytes))
+        r.write(Wav.header(sampleRate, dataBytes))
         r.close()
         val done = File(f.parentFile, f.name.removeSuffix(".part"))
         f.renameTo(done)
@@ -114,8 +116,8 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
         if (gain < 1.15) return
 
         val block = ByteArray(64 * 1024)
-        var pos = 44L
-        val end = 44L + dataBytes
+        var pos = Wav.HEADER.toLong()
+        val end = pos + dataBytes
         while (pos < end) {
             val len = minOf(block.size.toLong(), end - pos).toInt()
             r.seek(pos)
@@ -137,57 +139,15 @@ class WavChunkWriter(private val dir: File, private val sampleRate: Int) {
     /** Linear up to the knee, then smoothly compresses toward full scale. */
     private fun softLimit(x: Double): Double {
         val knee = 24000.0
-        val ax = kotlin.math.abs(x)
+        val ax = abs(x)
         if (ax <= knee) return x
         val room = 32767.0 - knee
-        val y = knee + room * kotlin.math.tanh((ax - knee) / room)
+        val y = knee + room * tanh((ax - knee) / room)
         return if (x < 0) -y else y
     }
 
     companion object {
         private const val TARGET = 20000.0 // ~ -4 dBFS for the loud parts of speech
         private const val MAX_GAIN = 12.0  // cap so silence-heavy chunks don't blow up hiss
-
-        private fun rateOf(r: RandomAccessFile): Int {
-            r.seek(24)
-            val b = ByteArray(4).also { r.readFully(it) }
-            return (b[0].toInt() and 0xFF) or ((b[1].toInt() and 0xFF) shl 8) or ((b[2].toInt() and 0xFF) shl 16) or ((b[3].toInt() and 0xFF) shl 24)
-        }
-
-        /** Length of a finished chunk in seconds. */
-        fun seconds(f: File): Double {
-            if (f.length() <= 44) return 0.0
-            return RandomAccessFile(f, "r").use { r ->
-                val rate = rateOf(r).takeIf { it > 0 } ?: return 0.0
-                (f.length() - 44) / (rate * 2.0)
-            }
-        }
-
-        /** Cuts a finished chunk so only its first [seconds] stay. */
-        fun trimFile(f: File, seconds: Double) {
-            RandomAccessFile(f, "rw").use { r ->
-                val rate = rateOf(r).takeIf { it > 0 } ?: return
-                val keep = ((seconds * rate).toLong() * 2).coerceIn(0, f.length() - 44)
-                r.setLength(44 + keep)
-                r.seek(0)
-                r.write(header(rate, keep))
-            }
-        }
-
-        fun header(sampleRate: Int, dataLen: Long): ByteArray = buildHeader(sampleRate, dataLen)
     }
-
-    private fun header(dataLen: Long) = buildHeader(sampleRate, dataLen)
-}
-
-private fun buildHeader(sampleRate: Int, dataLen: Long): ByteArray {
-        val byteRate = sampleRate * 2
-        fun le32(v: Long) = byteArrayOf(
-            (v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte(),
-            ((v shr 16) and 0xFF).toByte(), ((v shr 24) and 0xFF).toByte())
-        fun le16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
-        return "RIFF".toByteArray() + le32(36 + dataLen) + "WAVE".toByteArray() +
-            "fmt ".toByteArray() + le32(16) + le16(1) + le16(1) +
-            le32(sampleRate.toLong()) + le32(byteRate.toLong()) + le16(2) + le16(16) +
-            "data".toByteArray() + le32(dataLen)
 }

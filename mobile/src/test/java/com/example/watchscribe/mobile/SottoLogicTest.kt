@@ -258,6 +258,18 @@ class SottoLogicTest {
         f.delete()
     }
 
+    @Test fun wavWriteThenRead() {
+        val f = File.createTempFile("note", ".wav")
+        val pcm = ShortArray(1000) { (it * 37 - 18_000).toShort() }
+        Wav.write(f, 32_000, pcm)
+        assertEquals(44L + 2000, f.length())
+        val (rate, back) = Wav.read(f)
+        assertEquals(32_000, rate)
+        assertTrue(pcm.contentEquals(back))
+        assertEquals(500, Audio.load16k(f).size) // 32 kHz -> 16 kHz
+        f.delete()
+    }
+
     @Test fun locationLogPicksFixClosestToRecordingStart() {
         val t = 1_000_000_000L
         val fixes = listOf(

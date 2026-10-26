@@ -1,9 +1,7 @@
 package com.example.watchscribe.mobile.ai
 
+import com.example.watchscribe.mobile.data.Wav
 import java.io.File
-import java.io.RandomAccessFile
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -13,26 +11,19 @@ import kotlin.math.sqrt
 object Audio {
     /** Reads a 16-bit mono WAV and returns 16 kHz float samples. */
     fun load16k(f: File): FloatArray {
-        RandomAccessFile(f, "r").use { r ->
-            val h = ByteArray(44)
-            r.readFully(h)
-            val rate = ByteBuffer.wrap(h).order(ByteOrder.LITTLE_ENDIAN).getInt(24)
-            val bytes = ByteArray((r.length() - 44).toInt())
-            r.readFully(bytes)
-            val sb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-            val n = sb.remaining()
-            val src = FloatArray(n) { sb.get(it) / 32768f }
-            return when (rate) {
-                16_000 -> src
-                32_000 -> FloatArray(n / 2) { (src[2 * it] + src[2 * it + 1]) * 0.5f }
-                else -> {
-                    val outN = (n.toLong() * 16_000 / rate).toInt()
-                    FloatArray(outN) { i ->
-                        val pos = i.toDouble() * rate / 16_000
-                        val j = pos.toInt().coerceAtMost(n - 2)
-                        val fr = (pos - j).toFloat()
-                        src[j] * (1 - fr) + src[j + 1] * fr
-                    }
+        val (rate, pcm) = Wav.read(f)
+        val n = pcm.size
+        val src = FloatArray(n) { pcm[it] / 32768f }
+        return when (rate) {
+            16_000 -> src
+            32_000 -> FloatArray(n / 2) { (src[2 * it] + src[2 * it + 1]) * 0.5f }
+            else -> {
+                val outN = (n.toLong() * 16_000 / rate).toInt()
+                FloatArray(outN) { i ->
+                    val pos = i.toDouble() * rate / 16_000
+                    val j = pos.toInt().coerceAtMost(n - 2)
+                    val fr = (pos - j).toFloat()
+                    src[j] * (1 - fr) + src[j + 1] * fr
                 }
             }
         }

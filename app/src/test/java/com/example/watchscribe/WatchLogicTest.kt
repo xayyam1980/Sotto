@@ -76,11 +76,11 @@ class WatchLogicTest {
 
     @Test fun trimFileKeepsHeaderValid() {
         val f = File.createTempFile("chunk", ".wav")
-        f.writeBytes(WavChunkWriter.header(rate, rate * 2L * 10) + ByteArray(rate * 2 * 10))
-        assertEquals(10.0, WavChunkWriter.seconds(f), 0.001)
-        WavChunkWriter.trimFile(f, 4.0)
+        f.writeBytes(Wav.header(rate, rate * 2L * 10) + ByteArray(rate * 2 * 10))
+        assertEquals(10.0, Wav.seconds(f), 0.001)
+        Wav.trim(f, 4.0)
         assertEquals(44L + rate * 2 * 4, f.length())
-        assertEquals(4.0, WavChunkWriter.seconds(f), 0.001)
+        assertEquals(4.0, Wav.seconds(f), 0.001)
         val dataLen = ByteBuffer.wrap(f.readBytes(), 40, 4).order(ByteOrder.LITTLE_ENDIAN).int
         assertEquals(rate * 2 * 4, dataLen)
         f.delete()

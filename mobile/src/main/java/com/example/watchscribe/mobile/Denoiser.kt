@@ -1,9 +1,7 @@
 package com.example.watchscribe.mobile
 
+import com.example.watchscribe.mobile.data.Wav
 import java.io.File
-import java.io.RandomAccessFile
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -23,7 +21,7 @@ object Denoiser {
     private const val SMOOTH = 0.5      // time smoothing of gains
 
     fun process(input: File, output: File) {
-        val (rate, pcm) = readWav(input)
+        val (rate, pcm) = Wav.read(input)
         // ~32 ms frames whatever the sample rate (watch notes are 16 kHz now, older ones 32 kHz)
         val N = if (rate <= 16_000) 512 else 1024
         val HOP = N / 2
@@ -78,7 +76,7 @@ object Denoiser {
             out[i].toInt().coerceIn(-32768, 32767).toShort()
         }
         Leveler.process(result, rate) // bring quiet/far voices up to the same loudness
-        writeWav(output, rate, result)
+        Wav.write(output, rate, result)
     }
 
     private fun spectrum(pcm: ShortArray, off: Int, w: DoubleArray, re: DoubleArray, im: DoubleArray) {
@@ -121,32 +119,4 @@ object Denoiser {
         }
         if (inverse) for (i in 0 until n) { re[i] /= n; im[i] /= n }
     }
-
-    private fun readWav(f: File): Pair<Int, ShortArray> {
-        RandomAccessFile(f, "r").use { r ->
-            val header = ByteArray(44)
-            r.readFully(header)
-            val hb = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
-            val rate = hb.getInt(24)
-            val dataLen = (r.length() - 44).toInt()
-            val bytes = ByteArray(dataLen)
-            r.readFully(bytes)
-            val sb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-            val pcm = ShortArray(sb.remaining())
-            sb.get(pcm)
-            return rate to pcm
-        }
-    }
-
-    private fun writeWav(f: File, rate: Int, pcm: ShortArray) {
-        val dataLen = pcm.size * 2
-        val buf = ByteBuffer.allocate(44 + dataLen).order(ByteOrder.LITTLE_ENDIAN)
-        buf.put("RIFF".toByteArray()).putInt(36 + dataLen).put("WAVE".toByteArray())
-        buf.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(1)
-        buf.putInt(rate).putInt(rate * 2).putShort(2).putShort(16)
-        buf.put("data".toByteArray()).putInt(dataLen)
-        for (s in pcm) buf.putShort(s)
-        f.writeBytes(buf.array())
-    }
-
 }

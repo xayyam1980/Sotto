@@ -37,7 +37,7 @@ object Forget {
         var deleted = 0
         for (f in RecorderService.savedChunks(ctx)) {
             val start = startOf(f.name) ?: continue
-            val len = WavChunkWriter.seconds(f)
+            val len = Wav.seconds(f)
             when (val a = plan(start, len, cutoff)) {
                 Action.Keep -> {}
                 Action.Delete -> {
@@ -45,7 +45,7 @@ object Forget {
                     removed += len; deleted++
                 }
                 is Action.Trim -> {
-                    WavChunkWriter.trimFile(f, a.keepSeconds)
+                    Wav.trim(f, a.keepSeconds)
                     val m = File(f.parentFile, f.name + ".marks")
                     if (m.exists()) {
                         val kept = m.readText().split(',').mapNotNull { it.trim().toDoubleOrNull() }.filter { it <= a.keepSeconds }
