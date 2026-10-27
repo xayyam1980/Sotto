@@ -113,7 +113,7 @@ On the **Notes** screen, the **AI card** shows **Download**. It fetches the mode
 - **Speech detection** ([pyannote](https://github.com/pyannote/pyannote-audio) 3.0) and **voice fingerprints** ([3D-Speaker](https://github.com/modelscope/3D-Speaker) ERes2Net) to tell who is speaking
 - **Gemma 4 E2B** for summaries and Ask; **E4B** in Settings is slower but better
 
-Downloads continue in the background, over Wi-Fi only.
+Downloads continue in the background, over Wi-Fi only. Unpacking then takes a few minutes and keeps going with a notification if you leave the app. If a model fails, the reason shows in red under it in Settings → Models, with **Retry**.
 
 ---
 
