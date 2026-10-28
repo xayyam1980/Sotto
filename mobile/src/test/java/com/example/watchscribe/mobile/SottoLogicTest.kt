@@ -258,6 +258,17 @@ class SottoLogicTest {
         f.delete()
     }
 
+    @Test fun dayOfNotesFitsGemmaWindow() {
+        val talk = "we agreed to send the offer to Anna by Friday and review the budget ".repeat(300)
+        val day = List(14) { Gemma.Note("Meeting ${it + 1}\nSummary: Planning the offer.", if (it == 0) "short" else talk) }
+        val text = Gemma.fit(day, 2_800)
+        assertTrue("within budget", Gemma.tokens(text) <= 2_800)
+        assertTrue("every note is in", (1..14).all { "[$it] Meeting $it" in text })
+        assertTrue("short transcript kept whole", "Transcript: short\n" in text)
+        assertEquals("abc def", Gemma.cut("abc def", 100))
+        assertTrue(Gemma.cut("word ".repeat(1000), 50).length < 200)
+    }
+
     @Test fun wavWriteThenRead() {
         val f = File.createTempFile("note", ".wav")
         val pcm = ShortArray(1000) { (it * 37 - 18_000).toShort() }

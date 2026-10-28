@@ -70,13 +70,14 @@ object Digests {
 
 private val timeFmt = SimpleDateFormat("EEE d MMM HH:mm", Locale.getDefault())
 
-private fun noteText(r: Recording) = buildString {
-    append("${r.title} (${timeFmt.format(Date(r.start))}, ${Exporter.length(r.seconds)}, ${r.placeOrUnknown})\n")
-    r.summary?.let { append("Summary: $it\n") }
-    if (r.actions.isNotEmpty()) append("Action items: ${r.actions.joinToString("; ")}\n")
-    append("Transcript: ")
-    append(r.segments.orEmpty().joinToString(" ") { s -> (r.who(s.speaker)?.let { "$it: " } ?: "") + s.text })
-}
+private fun noteText(r: Recording) = Gemma.Note(
+    about = buildString {
+        append("${r.title} (${timeFmt.format(Date(r.start))}, ${Exporter.length(r.seconds)}, ${r.placeOrUnknown})")
+        r.summary?.let { append("\nSummary: $it") }
+        if (r.actions.isNotEmpty()) append("\nAction items: ${r.actions.joinToString("; ")}")
+    },
+    transcript = r.segments.orEmpty().joinToString(" ") { s -> (r.who(s.speaker)?.let { "$it: " } ?: "") + s.text },
+)
 
 /** Asks before deleting a whole group of notes (a day, a place). Undo still works afterwards. */
 @Composable

@@ -78,11 +78,10 @@ private fun pick(all: List<Recording>, q: String, max: Int = 12): List<Recording
         .take(max).map { it.first }
 }
 
-private fun noteText(r: Recording) = buildString {
-    append("${r.title} — ${when_.format(Date(r.start))}, ${r.placeOrUnknown}\n")
-    r.summary?.let { append("Summary: $it\n") }
-    append(r.segments!!.joinToString(" ") { s -> (r.who(s.speaker)?.let { "$it: " } ?: "") + s.text }.take(3_000))
-}
+private fun noteText(r: Recording) = Gemma.Note(
+    about = "${r.title} — ${when_.format(Date(r.start))}, ${r.placeOrUnknown}" + (r.summary?.let { "\nSummary: $it" } ?: ""),
+    transcript = r.segments!!.joinToString(" ") { s -> (r.who(s.speaker)?.let { "$it: " } ?: "") + s.text },
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
